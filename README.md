@@ -1,14 +1,22 @@
 # WG Casting App
 
-A mobile-first web application for shared flats (WG) to organize casting interviews for new tenants.
+A mobile-first web application for shared flats (WG) to organize casting interviews for new tenants. Now with **multi-user collaboration** and **real-time vote synchronization**!
 
 ## Features
+
+### 🔐 Multi-User Login System
+- **Username-based authentication** with unique validation
+- **Conflict detection** with modal notifications for duplicate names
+- **Real-time user management** across multiple participants
+- **Secure session handling** with logout functionality
 
 ### 🗓️ Availability Calendar
 - **When2meet-style interface** with monthly view
 - Days on X-axis, hours (10:00–22:00) on Y-axis
-- Tap and drag to mark availability blocks
-- Visual heatmap showing overlapping availabilities
+- **Fixed slot selection** - reliable mouse and touch interaction
+- **Single-click toggle** or **drag selection** for multi-hour blocks
+- **Multi-user heatmap** showing overlapping availabilities from all participants
+- **Real-time synchronization** with server-side persistence
 - Double-click time slots to add notes
 
 ### 👥 Candidate Management
@@ -24,11 +32,13 @@ A mobile-first web application for shared flats (WG) to organize casting intervi
 - Visual indicators show when notes exist
 - User tracking for multi-user scenarios
 
-### 💾 Data Persistence
-- All data stored locally using localStorage
-- No backend required for the first version
-- Automatic save on every change
-- User session management
+### 💾 Server-Side Data Persistence
+- **Express.js backend** with REST API endpoints
+- **JSON file storage** for vote persistence
+- **Real-time synchronization** across all users
+- **Automatic conflict resolution** for overlapping edits
+- **Multi-user session management**
+- **API endpoints**: `/api/votes`, `/api/usernames`
 
 ### 📱 Mobile-First Design
 - Fully responsive and touch-friendly interface
@@ -53,11 +63,20 @@ A mobile-first web application for shared flats (WG) to organize casting intervi
    ```bash
    npm install
    ```
-4. Start the development server:
+4. Start both backend and frontend (recommended):
    ```bash
+   npm run dev
+   ```
+   Or start them separately:
+   ```bash
+   # Terminal 1: Start backend server
+   npm run server
+   
+   # Terminal 2: Start frontend
    npm start
    ```
 5. Open [http://localhost:3000](http://localhost:3000) in your browser
+6. Enter a unique username to begin selecting availability
 
 ### Build for Production
 
@@ -67,13 +86,19 @@ npm run build
 
 ## How to Use
 
+### Getting Started
+1. **Enter your name** on the login screen
+2. Choose a **unique username** (you'll get a warning if it's taken)
+3. Click **Continue** to access the application
+
 ### Setting Up Availability
 1. Go to the **Calendar** tab
 2. Select a date from the month view
-3. Tap and drag on time slots (10:00-22:00) to mark your availability
+3. **Click once** to toggle individual time slots OR **drag** to select multiple hours
 4. Green blocks show your availability
-5. Numbers show how many people are available at each time
+5. **Blue numbers** show how many people are available at that time (heatmap)
 6. Double-click any time slot to add notes (e.g., "phone only")
+7. Your votes are **automatically saved** to the server
 
 ### Managing Candidates
 1. Go to the **Candidates** tab
@@ -92,10 +117,18 @@ npm run build
 ## Technical Details
 
 ### Built With
+
+**Frontend:**
 - **React** 18+ with TypeScript
-- **TailwindCSS** for styling
-- **localStorage** for data persistence
+- **TailwindCSS** for styling  
 - Mobile-first responsive design
+- Real-time state management
+
+**Backend:**
+- **Express.js** server
+- **CORS** for cross-origin requests
+- **JSON file storage** (server/votes.json)
+- RESTful API design
 
 ### Project Structure
 ```
@@ -129,6 +162,40 @@ interface Candidate {
   assignedSlotId?: string;
   notes?: CandidateNote[];
 }
+```
+
+### API Endpoints
+
+The backend server (port 3001) provides the following REST API endpoints:
+
+```
+GET /api/votes
+→ Returns all availability votes from all users
+→ Response: [{ username: "alice", day: "2025-09-05", start: "10:00", end: "12:00" }, ...]
+
+POST /api/votes
+→ Submit availability votes for a username
+→ Body: { username: "alice", votes: [{ day: "2025-09-05", start: "10:00", end: "12:00" }] }
+→ Response: { success: true, message: "Votes saved successfully" }
+
+GET /api/usernames
+→ Returns list of all usernames that have submitted votes
+→ Response: ["alice", "bob", "charlie"]
+
+GET /health
+→ Health check endpoint
+→ Response: { status: "OK", timestamp: "2025-09-05T15:30:00.000Z" }
+```
+
+### Data Storage
+
+Votes are stored in `server/votes.json` in the following format:
+```json
+[
+  { "username": "alice", "day": "2025-09-05", "start": "10:00", "end": "12:00" },
+  { "username": "bob", "day": "2025-09-05", "start": "11:00", "end": "13:00" },
+  { "username": "alice", "day": "2025-09-06", "start": "14:00", "end": "16:00" }
+]
 ```
 
 ## Deployment
