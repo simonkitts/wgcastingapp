@@ -324,8 +324,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`WG Casting API server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log('Express-Endpunkte für /api/candidates, /api/slotNotes, /api/votes und /api/usernames wurden registriert.');
+  console.log('Express-Endpunkte für /api/appointments, /api/candidates, /api/slotNotes, /api/votes und /api/usernames wurden registriert.');
 });
