@@ -1,11 +1,28 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AppData, AvailabilitySlot, Candidate, SlotNote } from '../types';
+import { AppData, AvailabilitySlot, Candidate, SlotNote, AvailabilityStatus } from '../types';
 
 interface ServerVote {
   username: string;
   day: string;
   start: string; // "10:00" format
   end: string;   // "11:00" format
+  status: AvailabilityStatus; // available, unavailable, maybe
+}
+
+interface AppointmentComment {
+  author: string;
+  text: string;
+  timestamp: number;
+}
+
+interface Appointment {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  type: 'Vor Ort' | 'Online';
+  comments?: AppointmentComment[];
 }
 
 interface DataContextType {
@@ -17,6 +34,8 @@ interface DataContextType {
   addAvailability: (slot: Omit<AvailabilitySlot, 'id'>) => void;
   removeAvailability: (id: string) => void;
   updateAvailability: (id: string, updates: Partial<AvailabilitySlot>) => void;
+  cycleAvailabilityStatus: (day: string, hour: number) => void;
+  getSlotStatus: (day: string, hour: number) => AvailabilityStatus | null;
   addCandidate: (candidate: Omit<Candidate, 'id'>) => void;
   updateCandidate: (id: string, updates: Partial<Candidate>) => void;
   deleteCandidate: (id: string) => void;
@@ -25,6 +44,7 @@ interface DataContextType {
   getHeatmapData: (day: string) => { [hour: number]: number };
   getBestTimeSlots: (day: string) => { hour: number; userCount: number }[];
   syncWithServer: () => Promise<void>;
+  fetchAppointmentsFromServer: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -36,6 +56,7 @@ const initialData: AppData = {
   availability: [],
   candidates: [],
   slotNotes: [],
+  appointments: [],
   currentUserId: '',
 };
 
@@ -55,50 +76,123 @@ export function DataProvider({ children }: DataProviderProps) {
       day: slot.day,
       start: `${slot.startHour.toString().padStart(2, '0')}:00`,
       end: `${slot.endHour.toString().padStart(2, '0')}:00`,
+      status: slot.status,
     }));
   };
 
   const convertServerVotesToAvailability = (votes: ServerVote[]): AvailabilitySlot[] => {
     return votes.map(vote => ({
-      id: `${vote.username}-${vote.day}-${vote.start}-${vote.end}`,
+      id: `${vote.username}-${vote.day}-${vote.start}-${vote.end}-${vote.status}`,
       userId: vote.username,
       day: vote.day,
       startHour: parseInt(vote.start.split(':')[0]),
       endHour: parseInt(vote.end.split(':')[0]),
+      status: vote.status || 'available', // fallback for backwards compatibility
     }));
   };
 
-  // Load candidates and notes from localStorage (keeping these local for now)
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setData(prev => ({
-          ...prev,
-          candidates: parsed.candidates || [],
-          slotNotes: parsed.slotNotes || [],
-        }));
-      } catch (error) {
-        console.error('Failed to parse stored data:', error);
+  // Kandidaten aus Backend laden
+  const fetchCandidatesFromServer = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/candidates`);
+      if (response.ok) {
+        const candidates = await response.json();
+        setData(prev => ({ ...prev, candidates }));
       }
+    } catch (error) {
+      console.error('Error fetching candidates:', error);
+    }
+  };
+
+  // Kandidaten ins Backend speichern (jetzt einzelnes Objekt)
+  const saveCandidateToServer = async (candidate: Candidate) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/candidates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(candidate),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save candidate');
+      }
+    } catch (error) {
+      console.error('Error saving candidate:', error);
+    }
+  };
+
+  // Kommentare aus Backend laden
+  const fetchSlotNotesFromServer = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/slotNotes`);
+      if (response.ok) {
+        const slotNotes = await response.json();
+        setData(prev => ({ ...prev, slotNotes }));
+      }
+    } catch (error) {
+      console.error('Error fetching slotNotes:', error);
+    }
+  };
+
+  // Kommentare ins Backend speichern
+  const saveSlotNotesToServer = async (slotNotes: SlotNote[]) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/slotNotes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotNotes }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save slotNotes');
+      }
+    } catch (error) {
+      console.error('Error saving slotNotes:', error);
+    }
+  };
+
+  // Termine aus Backend laden
+  const fetchAppointmentsFromServer = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments`);
+      if (response.ok) {
+        const appointments = await response.json();
+        setData(prev => ({ ...prev, appointments }));
+      }
+    } catch (error) {
+      console.error('Error fetching appointments:', error);
+    }
+  };
+
+  // Load candidates, notes und aktuellen Nutzer aus localStorage
+  useEffect(() => {
+    fetchCandidatesFromServer();
+    fetchSlotNotesFromServer();
+    // NEU: Nutzer aus localStorage laden
+    const storedUser = localStorage.getItem('wg-casting-user');
+    if (storedUser) {
+      setCurrentUser(storedUser);
+      setData(prev => ({ ...prev, currentUserId: storedUser }));
+      syncWithServer();
     }
   }, []);
 
-  // Save candidates and notes to localStorage
+  // useEffect: Kommentare ins Backend speichern
   useEffect(() => {
-    const dataToStore = {
-      candidates: data.candidates,
-      slotNotes: data.slotNotes,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToStore));
-  }, [data.candidates, data.slotNotes]);
+    saveSlotNotesToServer(data.slotNotes);
+  }, [data.slotNotes]);
+
+  // useEffect: Votes ins Backend speichern, wenn sich data.availability ändert
+  useEffect(() => {
+    if (currentUser) {
+      submitVotesToServer();
+    }
+  }, [data.availability]);
 
   const syncWithServer = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/votes`);
       if (response.ok) {
         const serverVotes = await response.json();
+        // NEU: Alle Votes (inkl. eigene) aus dem Backend übernehmen
         const availability = convertServerVotesToAvailability(serverVotes);
         setData(prev => ({ ...prev, availability }));
       }
@@ -129,7 +223,7 @@ export function DataProvider({ children }: DataProviderProps) {
         throw new Error('Failed to submit votes');
       }
 
-      // Sync back from server to get updated heatmap
+      // Sync direkt nach erfolgreicher Speicherung im Backend
       await syncWithServer();
     } catch (error) {
       console.error('Error submitting votes:', error);
@@ -141,19 +235,22 @@ export function DataProvider({ children }: DataProviderProps) {
     try {
       setCurrentUser(username);
       setData(prev => ({ ...prev, currentUserId: username }));
-      
-      // Load data from server
+      localStorage.setItem('wg-casting-user', username); // NEU: Nutzer speichern
       await syncWithServer();
-    } finally {
+    } catch (error) {
       setIsLoading(false);
+      throw error;
     }
+    setIsLoading(false);
   };
 
   const logout = () => {
     setCurrentUser(null);
     setData(initialData);
+    localStorage.removeItem('wg-casting-user'); // NEU: Nutzer entfernen
   };
 
+  // Slot-Methoden
   const addAvailability = (slot: Omit<AvailabilitySlot, 'id'>) => {
     const newSlot: AvailabilitySlot = {
       ...slot,
@@ -163,11 +260,6 @@ export function DataProvider({ children }: DataProviderProps) {
       ...prev,
       availability: [...prev.availability, newSlot],
     }));
-    
-    // Submit to server after a short delay to allow for drag operations
-    setTimeout(() => {
-      submitVotesToServer();
-    }, 500);
   };
 
   const removeAvailability = (id: string) => {
@@ -175,63 +267,84 @@ export function DataProvider({ children }: DataProviderProps) {
       ...prev,
       availability: prev.availability.filter(slot => slot.id !== id),
     }));
-    
-    // Submit to server after a short delay
-    setTimeout(() => {
-      submitVotesToServer();
-    }, 500);
   };
 
   const updateAvailability = (id: string, updates: Partial<AvailabilitySlot>) => {
     setData(prev => ({
       ...prev,
       availability: prev.availability.map(slot => 
-        slot.id === id ? { ...slot, ...updates } : slot
+        slot.id === id ? { ...slot, ...updates, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) } : slot
       ),
     }));
-    
-    // Submit to server after a short delay
-    setTimeout(() => {
-      submitVotesToServer();
-    }, 500);
   };
 
-  const addCandidate = (candidate: Omit<Candidate, 'id'>) => {
+  // Kandidaten-Methoden
+  const addCandidate = async (candidate: Omit<Candidate, 'id'>) => {
     const newCandidate: Candidate = {
       ...candidate,
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      besichtigungStatus: 'offen',
+      castingStatus: 'offen',
+      votes: {},
+      notes: [],
     };
-    setData(prev => ({
-      ...prev,
-      candidates: [...prev.candidates, newCandidate],
-    }));
+    try {
+      await saveCandidateToServer(newCandidate);
+      fetchCandidatesFromServer(); // Nach dem Speichern neu laden
+    } catch (error) {
+      console.error('Error adding candidate:', error);
+    }
   };
 
-  const updateCandidate = (id: string, updates: Partial<Candidate>) => {
+  const updateCandidate = async (id: string, updates: Partial<Candidate>) => {
     setData(prev => ({
       ...prev,
-      candidates: prev.candidates.map(candidate => 
+      candidates: prev.candidates.map(candidate =>
         candidate.id === id ? { ...candidate, ...updates } : candidate
       ),
     }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/candidates/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (response.ok) {
+        fetchCandidatesFromServer(); // Nach Update neu laden
+      }
+    } catch (error) {
+      console.error('Error updating candidate:', error);
+    }
   };
 
-  const deleteCandidate = (id: string) => {
+  const deleteCandidate = async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/candidates/${id}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        fetchCandidatesFromServer();
+      }
+    } catch (error) {
+      console.error('Error deleting candidate:', error);
+    }
     setData(prev => ({
       ...prev,
       candidates: prev.candidates.filter(candidate => candidate.id !== id),
     }));
   };
 
+  // Kommentar-Methode
   const addSlotNote = (note: Omit<SlotNote, 'id'>) => {
     const newNote: SlotNote = {
       ...note,
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
     };
-    setData(prev => ({
-      ...prev,
-      slotNotes: [...prev.slotNotes, newNote],
-    }));
+    setData(prev => {
+      const updated = { ...prev, slotNotes: [...prev.slotNotes, newNote] };
+      saveSlotNotesToServer(updated.slotNotes); // Backend-Speicherung direkt nach Update
+      return updated;
+    });
   };
 
   const getAvailabilityForDay = (day: string): AvailabilitySlot[] => {
@@ -249,8 +362,11 @@ export function DataProvider({ children }: DataProviderProps) {
     // Count available users for each hour (all users, not just current user)
     const daySlots = getAvailabilityForDay(day);
     daySlots.forEach(slot => {
-      for (let hour = slot.startHour; hour < slot.endHour; hour++) {
-        heatmap[hour]++;
+      // Count slots marked as 'present' or 'online'
+      if (slot.status === 'present' || slot.status === 'online') {
+        for (let hour = slot.startHour; hour < slot.endHour; hour++) {
+          heatmap[hour]++;
+        }
       }
     });
     
@@ -265,27 +381,92 @@ export function DataProvider({ children }: DataProviderProps) {
       .sort((a, b) => b.userCount - a.userCount);
   };
 
-  const contextValue: DataContextType = {
-    data,
-    currentUser,
-    isLoading,
-    login,
-    logout,
-    addAvailability,
-    removeAvailability,
-    updateAvailability,
-    addCandidate,
-    updateCandidate,
-    deleteCandidate,
-    addSlotNote,
-    getAvailabilityForDay,
-    getHeatmapData,
-    getBestTimeSlots,
-    syncWithServer,
+  // Kandidaten-Vote (Daumen hoch/runter) setzen
+  const voteCandidate = async (candidateId: string, vote: 'up' | 'down') => {
+    if (!currentUser) return;
+    const candidate = data.candidates.find(c => c.id === candidateId);
+    if (!candidate) return;
+    const updatedVotes = { ...candidate.votes, [currentUser]: vote };
+    await updateCandidate(candidateId, { votes: updatedVotes });
   };
 
+  const getSlotStatus = (day: string, hour: number): AvailabilityStatus | null => {
+    const slot = data.availability.find(
+      slot => slot.day === day && 
+      slot.userId === data.currentUserId && 
+      hour >= slot.startHour && 
+      hour < slot.endHour
+    );
+    return slot ? slot.status : null;
+  };
+
+  const cycleAvailabilityStatus = (day: string, hour: number) => {
+    if (!currentUser) return;
+    
+    // Find existing slot for this hour
+    const existingSlot = data.availability.find(
+      slot => slot.day === day && 
+      slot.userId === currentUser && 
+      hour >= slot.startHour && 
+      hour < slot.endHour
+    );
+    
+    if (existingSlot) {
+      // Cycle through states: present -> online -> unavailable -> remove
+      const currentStatus = existingSlot.status;
+      let newStatus: AvailabilityStatus | null = null;
+      switch (currentStatus) {
+        case 'present':
+          newStatus = 'online';
+          break;
+        case 'online':
+          newStatus = 'unavailable';
+          break;
+        case 'unavailable':
+          // Remove the slot (return to default/nothing state)
+          removeAvailability(existingSlot.id);
+          return;
+      }
+      if (newStatus) {
+        updateAvailability(existingSlot.id, { status: newStatus });
+      }
+    } else {
+      // No existing slot, create new one with 'present' status
+      addAvailability({
+        userId: currentUser,
+        day,
+        startHour: hour,
+        endHour: hour + 1,
+        status: 'present',
+      });
+    }
+  };
+
+  // Im Context bereitstellen
   return (
-    <DataContext.Provider value={contextValue}>
+    <DataContext.Provider
+      value={{
+        data,
+        currentUser,
+        isLoading,
+        login,
+        logout,
+        addAvailability,
+        removeAvailability,
+        updateAvailability,
+        cycleAvailabilityStatus,
+        getSlotStatus,
+        addCandidate,
+        updateCandidate,
+        deleteCandidate,
+        addSlotNote,
+        getAvailabilityForDay,
+        getHeatmapData,
+        getBestTimeSlots,
+        syncWithServer,
+        fetchAppointmentsFromServer, // NEU
+      }}
+    >
       {children}
     </DataContext.Provider>
   );

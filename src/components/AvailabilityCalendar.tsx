@@ -2,17 +2,21 @@ import React, { useState, useRef } from 'react';
 import { useData } from '../context/DataContext';
 import NotesModal from './NotesModal';
 
+function formatLocalDate(date: Date): string {
+  return date.getFullYear() + '-' +
+    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+    String(date.getDate()).padStart(2, '0');
+}
+
 const AvailabilityCalendar: React.FC = () => {
-  const { data, addAvailability, removeAvailability, getHeatmapData } = useData();
+  const { data, cycleAvailabilityStatus, getSlotStatus, getHeatmapData } = useData();
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-    return today.toISOString().split('T')[0];
+    return formatLocalDate(today);
   });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{ hour: number } | null>(null);
-  const [dragMode, setDragMode] = useState<'add' | 'remove'>('add');
   const [notesModal, setNotesModal] = useState<{ isOpen: boolean; slotId: string; hour: number } | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const longPressTimers = useRef<{ [key: number]: NodeJS.Timeout }>({});
 
   // Generate current month dates
   const generateMonthDates = () => {
@@ -21,11 +25,10 @@ const AvailabilityCalendar: React.FC = () => {
     const month = today.getMonth();
     const lastDay = new Date(year, month + 1, 0);
     const dates = [];
-    
     for (let d = 1; d <= lastDay.getDate(); d++) {
       const date = new Date(year, month, d);
       dates.push({
-        date: date.toISOString().split('T')[0],
+        date: formatLocalDate(date),
         day: d,
         isToday: date.toDateString() === today.toDateString(),
         isPast: date < today && date.toDateString() !== today.toDateString(),
@@ -37,13 +40,30 @@ const AvailabilityCalendar: React.FC = () => {
   const monthDates = generateMonthDates();
   const hours = Array.from({ length: 13 }, (_, i) => i + 10); // 10-22
 
-  const getAvailabilityForSlot = (day: string, hour: number) => {
-    return data.availability.find(
-      slot => slot.day === day && 
-      slot.userId === data.currentUserId && 
-      hour >= slot.startHour && 
-      hour < slot.endHour
-    );
+  const getSlotStatusClass = (status: string | null) => {
+    switch (status) {
+      case 'present':
+        return 'bg-green-100 hover:bg-green-200 border-green-300';
+      case 'online':
+        return 'bg-blue-100 hover:bg-blue-200 border-blue-300';
+      case 'unavailable':
+        return 'bg-red-100 hover:bg-red-200 border-red-300';
+      default:
+        return 'bg-white hover:bg-gray-50 border-gray-200';
+    }
+  };
+
+  const getSlotIcon = (status: string | null) => {
+    switch (status) {
+      case 'present':
+        return <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
+      case 'online':
+        return <div className="w-2 h-2 bg-blue-500 rounded-full"></div>;
+      case 'unavailable':
+        return <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
+      default:
+        return null;
+    }
   };
 
   const getHeatmapIntensity = (day: string, hour: number) => {
@@ -56,82 +76,14 @@ const AvailabilityCalendar: React.FC = () => {
     return '';
   };
 
-  const handleMouseDown = (hour: number, day: string) => {
+  const handleSlotClick = (hour: number, day: string) => {
+    // Don't allow clicking on past hours
     if (new Date(day) < new Date() && new Date(day).toDateString() !== new Date().toDateString()) return;
+    const isPastHour = new Date(day).toDateString() === new Date().toDateString() && hour < new Date().getHours();
+    if (isPastHour) return;
     
-    const existingSlot = getAvailabilityForSlot(day, hour);
-    setDragMode(existingSlot ? 'remove' : 'add');
-    setIsDragging(true);
-    setDragStart({ hour });
-    
-    // Handle single click case - toggle the slot immediately
-    if (existingSlot) {
-      removeAvailability(existingSlot.id);
-    } else {
-      // Add availability for single hour
-      addAvailability({
-        userId: data.currentUserId,
-        day,
-        startHour: hour,
-        endHour: hour + 1,
-      });
-    }
-  };
-
-  const handleMouseEnter = (hour: number, day: string) => {
-    if (!isDragging || !dragStart || day !== selectedDate) return;
-    
-    const startHour = Math.min(dragStart.hour, hour);
-    const endHour = Math.max(dragStart.hour, hour) + 1;
-    
-    // Clear existing availability for current user on this day
-    const existingSlots = data.availability.filter(
-      slot => slot.day === day && slot.userId === data.currentUserId
-    );
-    existingSlots.forEach(slot => removeAvailability(slot.id));
-    
-    // Add new availability if in add mode
-    if (dragMode === 'add') {
-      addAvailability({
-        userId: data.currentUserId,
-        day,
-        startHour,
-        endHour,
-      });
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    setDragStart(null);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent, hour: number, day: string) => {
-    e.preventDefault();
-    handleMouseDown(hour, day);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault();
-    if (!isDragging) return;
-    
-    const touch = e.touches[0];
-    const element = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement;
-    if (element && element.dataset && element.dataset.hour && element.dataset.day) {
-      const hour = parseInt(element.dataset.hour);
-      const day = element.dataset.day;
-      handleMouseEnter(hour, day);
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    e.preventDefault();
-    handleMouseUp();
-  };
-
-  const handleDoubleClick = (hour: number, day: string) => {
-    const slotId = `${day}-${hour}`;
-    setNotesModal({ isOpen: true, slotId, hour });
+    // Cycle through availability states
+    cycleAvailabilityStatus(day, hour);
   };
 
   const getNotesForSlot = (day: string, hour: number) => {
@@ -176,57 +128,87 @@ const AvailabilityCalendar: React.FC = () => {
       <div 
         ref={calendarRef}
         className="bg-white rounded-lg border border-gray-200 overflow-hidden"
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
       >
         <div className="grid grid-cols-1 gap-px bg-gray-200">
           {hours.map((hour) => {
-            const isAvailable = getAvailabilityForSlot(selectedDate, hour);
+            const slotStatus = getSlotStatus(selectedDate, hour);
             const heatmapClass = getHeatmapIntensity(selectedDate, hour);
             const slotNotes = getNotesForSlot(selectedDate, hour);
             const isPastHour = new Date(selectedDate).toDateString() === new Date().toDateString() && 
                               hour < new Date().getHours();
-            
+            const baseStatusClass = getSlotStatusClass(slotStatus);
+            const finalClass = slotStatus ? baseStatusClass : (heatmapClass ? `${heatmapClass} hover:opacity-80 border-gray-200` : baseStatusClass);
+
+            // NEU: Alle Nutzer und deren Status für diesen Slot anzeigen
+            const slotsForHour = data.availability.filter(slot => slot.day === selectedDate && hour >= slot.startHour && hour < slot.endHour);
+
+            // Long-press logic needs to be inside the map to have a unique timer per slot
+            let longPressTimer: NodeJS.Timeout | null = null;
+            const handleLongPressStart = () => {
+              longPressTimers.current[hour] = setTimeout(() => {
+                setNotesModal({ isOpen: true, slotId: `${selectedDate}-${hour}`, hour });
+              }, 500);
+            };
+            const handleLongPressEnd = () => {
+              if (longPressTimers.current[hour]) {
+                clearTimeout(longPressTimers.current[hour]);
+                delete longPressTimers.current[hour];
+              }
+            };
+
             return (
               <div
                 key={hour}
                 data-hour={hour}
                 data-day={selectedDate}
-                className={`h-12 flex items-center justify-between px-3 cursor-pointer touch-manipulation ${
-                  isPastHour
-                    ? 'bg-gray-50 cursor-not-allowed'
-                    : isAvailable
-                    ? 'bg-green-100 hover:bg-green-200'
-                    : heatmapClass
-                    ? `${heatmapClass} hover:opacity-80`
-                    : 'bg-white hover:bg-gray-50'
-                }`}
-                onMouseDown={() => !isPastHour && handleMouseDown(hour, selectedDate)}
-                onMouseEnter={() => handleMouseEnter(hour, selectedDate)}
-                onDoubleClick={() => handleDoubleClick(hour, selectedDate)}
-                onTouchStart={(e) => !isPastHour && handleTouchStart(e, hour, selectedDate)}
+                className={`flex flex-col justify-center px-2 cursor-pointer touch-manipulation border-l-4 transition-all duration-150 ${isPastHour ? 'bg-gray-50 cursor-not-allowed border-l-gray-300' : finalClass} ${slotsForHour.length > 4 ? 'h-16' : 'h-8'}`}
+                onClick={() => !isPastHour && handleSlotClick(hour, selectedDate)}
+                onMouseDown={handleLongPressStart}
+                onMouseUp={handleLongPressEnd}
+                onMouseLeave={handleLongPressEnd}
+                onTouchStart={handleLongPressStart}
+                onTouchEnd={handleLongPressEnd}
               >
-                <span className="text-sm font-medium">
-                  {hour.toString().padStart(2, '0')}:00
-                </span>
-                
-                {/* Indicators */}
-                <div className="flex items-center space-x-1">
-                  {isAvailable && (
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  )}
-                  {slotNotes.length > 0 && (
-                    <div className="w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center">
-                      <span className="text-xs font-bold text-white">{slotNotes.length}</span>
+                <div className="flex items-center w-full justify-between">
+                  <div className="flex items-center min-w-0">
+                    <span className="font-mono text-xs flex-shrink-0">{hour}:00</span>
+                    <div className="flex flex-wrap gap-1 items-center ml-2 text-xs min-w-0">
+                      {slotsForHour.map((slot, idx) => {
+                        const name = slot.userId === data.currentUserId ? 'Du' : slot.userId;
+                        let color = '';
+                        switch (slot.status) {
+                          case 'present':
+                            color = 'bg-green-100 text-green-700 border-green-300';
+                            break;
+                          case 'online':
+                            color = 'bg-blue-100 text-blue-700 border-blue-300';
+                            break;
+                          case 'unavailable':
+                            color = 'bg-red-100 text-red-700 border-red-300';
+                            break;
+                          default:
+                            color = 'bg-gray-50 text-gray-700 border-gray-200';
+                        }
+                        return (
+                          <span
+                            key={name + idx}
+                            className={`px-1 py-0.5 rounded border font-medium truncate ${name === 'Du' ? 'font-bold' : ''} ${color}`}
+                          >
+                            {name}
+                          </span>
+                        );
+                      })}
                     </div>
-                  )}
-                  {heatmapClass && !isAvailable && (
-                    <span className="text-xs text-blue-700 font-medium">
-                      {getHeatmapData(selectedDate)[hour] || 0}
-                    </span>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {getSlotIcon(slotStatus)}
+                    {/* Kommentar-Symbol anzeigen, wenn Notizen vorhanden */}
+                    {slotNotes.length > 0 && (
+                      <span title="Kommentare vorhanden" className="text-blue-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="inline w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.8l-4 1 1-4A8.96 8.96 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -237,23 +219,56 @@ const AvailabilityCalendar: React.FC = () => {
       {/* Instructions */}
       <div className="mt-4 p-3 bg-blue-50 rounded-lg">
         <p className="text-sm text-blue-700">
-          <strong>Tippe und ziehe</strong> um deine verfügbaren Zeiten auszuwählen (10:00-22:00).
-          <strong>Doppelklicke</strong> einen Slot um ein Kommentar zu hinterlassen.
-          Die Zahl gibt an, wie viele Personen in diesem Slot verfügbar sind.
+          <strong>Tippe</strong> ein Zeitslot an, um deinen Status zu ändern: {' '}
+            <br/>
+          <span className="inline-flex items-center mx-1">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+            Vor Ort
+          </span> →
+          <span className="inline-flex items-center mx-1">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
+            Online
+          </span> →
+          <span className="inline-flex items-center mx-1">
+            <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
+            Keine Zeit
+          </span> → Vielleicht dabei<br/><br/>
+          <strong>Halte gedrückt</strong> um Kommentare zu hinterlassen.
         </p>
       </div>
       
       {/* Current selection summary */}
       {data.availability.filter(slot => slot.day === selectedDate && slot.userId === data.currentUserId).length > 0 && (
-        <div className="mt-3 p-3 bg-green-50 rounded-lg">
-          <p className="text-sm text-green-700 font-medium">
-            Your availability for {new Date(selectedDate).toLocaleDateString()}:
+        <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+          <p className="text-sm text-gray-700 font-medium">
+            Deine Slots für den {new Date(selectedDate).toLocaleDateString()}:
           </p>
-          <div className="mt-1 text-sm text-green-600">
-            {data.availability
-              .filter(slot => slot.day === selectedDate && slot.userId === data.currentUserId)
-              .map(slot => `${slot.startHour}:00 - ${slot.endHour}:00`)
-              .join(', ')}
+          <div className="mt-1 space-y-1">
+            {["present", "online", "unavailable"].map(status => {
+              const slotsForStatus = data.availability.filter(
+                slot => slot.day === selectedDate && slot.userId === data.currentUserId && slot.status === status
+              );
+              if (slotsForStatus.length === 0) return null;
+              let statusColor = "";
+              let statusIcon = "";
+              if (status === "present") {
+                statusColor = "text-green-600";
+                statusIcon = "🟢";
+              } else if (status === "online") {
+                statusColor = "text-blue-600";
+                statusIcon = "🔵";
+              } else if (status === "unavailable") {
+                statusColor = "text-red-600";
+                statusIcon = "🔴";
+              }
+              let statusLabel = status === "present" ? "Present" : status === "online" ? "Online" : "Unavailable";
+              return (
+                <div key={status} className={`text-sm ${statusColor}`}>
+                  {statusIcon} <span className="capitalize font-medium">{statusLabel}:</span> {' '}
+                  {slotsForStatus.map(slot => `${slot.startHour}:00-${slot.endHour}:00`).join(', ')}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

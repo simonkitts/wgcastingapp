@@ -13,6 +13,7 @@ const CandidateList: React.FC = () => {
     description: '',
     link: '',
   });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const resetForm = () => {
     setFormData({ name: '', description: '', link: '' });
@@ -64,7 +65,8 @@ const CandidateList: React.FC = () => {
     for (let i = 0; i < 7; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
-      const dateStr = date.toISOString().split('T')[0];
+      // Lokales Datum statt UTC
+      const dateStr = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
       const bestSlots = getBestTimeSlots(dateStr);
       
       if (bestSlots.length > 0) {
@@ -83,11 +85,24 @@ const CandidateList: React.FC = () => {
     updateCandidate(candidateId, { assignedSlotId: slotId });
   };
 
+  const handleStatusCycle = (candidate: Candidate, type: 'besichtigung' | 'casting') => {
+    const statusKey = type === 'besichtigung' ? 'besichtigungStatus' : 'castingStatus';
+    const current = candidate[statusKey];
+    const next = current === 'geplant' ? 'abgeschlossen' : 'geplant';
+    updateCandidate(candidate.id, { [statusKey]: next });
+  };
+
+  const handleVote = (candidate: Candidate, vote: 'up' | 'down') => {
+    if (!data.currentUserId) return;
+    const newVotes = { ...candidate.votes, [data.currentUserId]: vote };
+    updateCandidate(candidate.id, { votes: newVotes });
+  };
+
   return (
     <div className="p-4 space-y-4">
       {/* Header with Add Button */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Kandidat</h2>
+        <h2 className="text-lg font-semibold">Kandidaten</h2>
         <button
           onClick={() => setIsAddingCandidate(true)}
           className="bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-600 touch-manipulation"
@@ -118,7 +133,7 @@ const CandidateList: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
+                Beschreibung
               </label>
               <textarea
                 value={formData.description}
@@ -160,94 +175,95 @@ const CandidateList: React.FC = () => {
       )}
 
       {/* Candidates List */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {data.candidates.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <p>No candidates yet.</p>
-            <p className="text-sm">Drücke "Kandidat Hinzufügen" um zu starten</p>
+            <p>Noch keine Kandidaten :/</p>
+            <p className="text-sm">Drücke "Kandidat Hinzufügen"</p>
           </div>
         ) : (
-          data.candidates.map((candidate) => {
+          data.candidates.map(candidate => {
             const recommendedTimes = getRecommendedTimes(candidate.id);
-            
+            const isExpanded = expandedId === candidate.id;
             return (
-              <div key={candidate.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                {/* Candidate Header */}
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900">{candidate.name}</h3>
-                    {candidate.assignedSlotId && (
-                      <div className="mt-1">
-                        <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">
-                          Geplant
-                        </span>
-                      </div>
-                    )}
+              <div key={candidate.id} className="border rounded px-3 py-2 mb-2 flex flex-col bg-white shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="font-semibold cursor-pointer hover:underline"
+                      onClick={() => setExpandedId(isExpanded ? null : candidate.id)}
+                    >
+                      {candidate.name}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs text-white ${candidate.besichtigungStatus === 'abgeschlossen' ? 'bg-green-600' : candidate.besichtigungStatus === 'geplant' ? 'bg-yellow-500' : 'bg-gray-400'}`}
+                          onClick={() => handleStatusCycle(candidate, 'besichtigung')}
+                          style={{ cursor: 'pointer' }}>
+                      Besichtigung {candidate.besichtigungStatus === 'abgeschlossen' ? '✔' : candidate.besichtigungStatus === 'geplant' ? '⏳' : '–'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs text-white ${candidate.castingStatus === 'abgeschlossen' ? 'bg-green-600' : candidate.castingStatus === 'geplant' ? 'bg-yellow-500' : 'bg-gray-400'}`}
+                          onClick={() => handleStatusCycle(candidate, 'casting')}
+                          style={{ cursor: 'pointer' }}>
+                      Casting {candidate.castingStatus === 'abgeschlossen' ? '✔' : candidate.castingStatus === 'geplant' ? '⏳' : '–'}
+                    </span>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setNotesModal({ isOpen: true, candidateId: candidate.id, candidateName: candidate.name })}
-                      className="text-yellow-600 hover:text-yellow-700 text-sm touch-manipulation p-1"
-                    >
-                      Notes ({candidate.notes?.length || 0})
+                  <div className="flex gap-1 items-center">
+                    <button onClick={() => handleVote(candidate, 'up')} className={`ml-2 text-primary-500 hover:text-primary-700 focus:outline-none w-6 h-6 flex items-center justify-center rounded ${candidate.votes?.[data.currentUserId] === 'up' ? 'bg-green-100' : ''}`}
+                      title="Daumen hoch">
+                      👍
                     </button>
-                    <button
-                      onClick={() => handleEdit(candidate)}
-                      className="text-blue-600 hover:text-blue-700 text-sm touch-manipulation p-1"
-                    >
-                      Bearbeiten
-                    </button>
-                    <button
-                      onClick={() => handleDelete(candidate.id)}
-                      className="text-red-600 hover:text-red-700 text-sm touch-manipulation p-1"
-                    >
-                      Löschen
+                    <button onClick={() => handleVote(candidate, 'down')} className={`ml-2 text-primary-500 hover:text-primary-700 focus:outline-none w-6 h-6 flex items-center justify-center rounded ${candidate.votes?.[data.currentUserId] === 'down' ? 'bg-red-100' : ''}`}
+                      title="Daumen runter">
+                      👎
                     </button>
                   </div>
                 </div>
-
-                {/* Description */}
-                {candidate.description && (
-                  <p className="text-gray-600 text-sm mb-3">{candidate.description}</p>
-                )}
-
-                {/* Link */}
-                {candidate.link && (
-                  <div className="mb-3">
-                    <a
-                      href={candidate.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary-600 hover:text-primary-700 text-sm underline touch-manipulation"
-                    >
-                      Kandidat ansehen →
-                    </a>
-                  </div>
-                )}
-
-                {/* Recommended Times */}
-                {recommendedTimes.length > 0 && (
-                  <div className="border-t border-gray-100 pt-3 mt-3">
-                    <p className="text-sm font-medium text-gray-700 mb-2">
-                      Die Besten Zeiten um einen Kandidaten einzuplanen:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {recommendedTimes.map((timeSlot, index) => (
-                        <button
-                          key={index}
-                          onClick={() => {
-                            const slotId = `${timeSlot.date}-${timeSlot.bestSlot.hour}`;
-                            assignCandidateToSlot(candidate.id, slotId);
-                          }}
-                          className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium hover:bg-blue-100 touch-manipulation"
-                        >
-                          {timeSlot.displayDate} at {timeSlot.bestSlot.hour}:00
-                          <span className="ml-1 text-blue-500">
-                            ({timeSlot.bestSlot.userCount} verfügbar)
-                          </span>
-                        </button>
-                      ))}
+                {isExpanded && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    {candidate.description && <div className="mb-1">{candidate.description}</div>}
+                    {candidate.link && (
+                      <div className="mb-1">
+                        <a href={candidate.link} target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">
+                          {(() => {
+                            try {
+                              const url = new URL(candidate.link);
+                              const parts = url.hostname.split('.');
+                              return parts.length > 1 ? parts[parts.length - 2] : url.hostname;
+                            } catch {
+                              return candidate.link;
+                            }
+                          })()}
+                        </a>
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => handleEdit(candidate)} className="px-2 py-1 text-xs bg-blue-100 rounded hover:bg-blue-200 text-blue-700 border border-blue-200 font-medium">Bearbeiten</button>
+                      <button onClick={() => handleDelete(candidate.id)} className="px-2 py-1 text-xs bg-red-100 rounded hover:bg-red-200 text-red-700 border border-red-200 font-medium">Löschen</button>
                     </div>
+                    {candidate.votes && Object.entries(candidate.votes).length > 0 && (
+                      <div className="mt-2 text-xs text-gray-500">Abstimmungen: {Object.entries(candidate.votes).map(([user, v]) => `${user}: ${v === 'up' ? '👍' : '👎'}`).join(', ')}</div>
+                    )}
+                    {recommendedTimes.length > 0 && (
+                      <div className="border-t border-gray-100 pt-2 mt-2">
+                        <div className="mb-1 font-medium">Empfohlene Zeiten:</div>
+                        <div className="flex flex-wrap gap-2">
+                          {recommendedTimes.map((timeSlot: any, index: number) => (
+                            <button
+                              key={index}
+                              onClick={() => {
+                                const slotId = `${timeSlot.date}-${timeSlot.bestSlot.hour}`;
+                                assignCandidateToSlot(candidate.id, slotId);
+                              }}
+                              className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium hover:bg-blue-100 touch-manipulation"
+                            >
+                              {timeSlot.displayDate} {timeSlot.bestSlot.hour}:00
+                              <span className="ml-1 text-blue-500">
+                                ({timeSlot.bestSlot.userCount} verfügbar)
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

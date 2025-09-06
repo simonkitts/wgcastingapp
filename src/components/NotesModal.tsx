@@ -79,7 +79,7 @@ const NotesModal: React.FC<NotesModalProps> = ({
         <div className="p-4 max-h-48 overflow-y-auto">
           {notes.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-4">
-              Noch keine Notes vorhanden. Füge unten eine hinzu!
+              Noch keine Kommentare vorhanden :/
             </p>
           ) : (
             <div className="space-y-3">
@@ -87,7 +87,7 @@ const NotesModal: React.FC<NotesModalProps> = ({
                 <div key={note.id} className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-sm text-gray-800 mb-1">{note.text}</p>
                   <p className="text-xs text-gray-500">
-                    {new Date(note.timestamp).toLocaleString()}
+                    {note.userId ? `Verfasser: ${note.userId} | ` : ''}{new Date(note.timestamp).toLocaleString()}
                   </p>
                 </div>
               ))}
@@ -97,19 +97,19 @@ const NotesModal: React.FC<NotesModalProps> = ({
 
         {/* Add Note Form */}
         <div className="p-4 border-t border-gray-200">
-          <div className="flex space-x-2">
+          <div className="flex gap-2 mt-2">
             <input
               type="text"
               value={newNote}
               onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Füge eine Notiz hinzu..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
-              onKeyPress={(e) => e.key === 'Enter' && handleAddNote()}
+              placeholder="Kommentar hinzufügen..."
+              className="border px-2 py-1 text-xs w-full rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
             />
             <button
               onClick={handleAddNote}
               disabled={!newNote.trim()}
-              className="bg-primary-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+              className="bg-primary-500 text-white px-2 py-1 rounded text-xs font-medium hover:bg-primary-600 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Hinzufügen
             </button>
