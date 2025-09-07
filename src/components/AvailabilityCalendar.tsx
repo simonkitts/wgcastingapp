@@ -78,11 +78,11 @@ const AvailabilityCalendar: React.FC = () => {
 
   const handleSlotClick = (hour: number, day: string) => {
     // Don't allow clicking on past hours
-    if (new Date(day) < new Date() && new Date(day).toDateString() !== new Date().toDateString()) return;
-    const isPastHour = new Date(day).toDateString() === new Date().toDateString() && hour < new Date().getHours();
+    const now = new Date();
+    const slotDate = new Date(day);
+    if (slotDate < now && slotDate.toDateString() !== now.toDateString()) return;
+    const isPastHour = slotDate.toDateString() === now.toDateString() && hour < now.getHours();
     if (isPastHour) return;
-    
-    // Cycle through availability states
     cycleAvailabilityStatus(day, hour);
   };
 
@@ -143,7 +143,6 @@ const AvailabilityCalendar: React.FC = () => {
             const slotsForHour = data.availability.filter(slot => slot.day === selectedDate && hour >= slot.startHour && hour < slot.endHour);
 
             // Long-press logic needs to be inside the map to have a unique timer per slot
-            let longPressTimer: NodeJS.Timeout | null = null;
             const handleLongPressStart = () => {
               longPressTimers.current[hour] = setTimeout(() => {
                 setNotesModal({ isOpen: true, slotId: `${selectedDate}-${hour}`, hour });

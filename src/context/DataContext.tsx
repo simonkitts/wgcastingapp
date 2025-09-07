@@ -222,9 +222,8 @@ export function DataProvider({ children }: DataProviderProps) {
       if (!response.ok) {
         throw new Error('Failed to submit votes');
       }
-
-      // Sync direkt nach erfolgreicher Speicherung im Backend
-      await syncWithServer();
+      // Entfernt: await syncWithServer();
+      // Nach erfolgreichem Speichern wird der lokale State NICHT sofort überschrieben.
     } catch (error) {
       console.error('Error submitting votes:', error);
     }

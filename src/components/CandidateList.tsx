@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { Candidate } from '../types';
 import NotesModal from './NotesModal';
+import AppointmentModal from './AppointmentModal';
 
 const CandidateList: React.FC = () => {
   const { data, addCandidate, updateCandidate, deleteCandidate, getBestTimeSlots } = useData();
@@ -14,6 +15,14 @@ const CandidateList: React.FC = () => {
     link: '',
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [appointmentModal, setAppointmentModal] = useState<{
+    open: boolean;
+    title: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    type: 'Vor Ort' | 'Online';
+  } | null>(null);
 
   const resetForm = () => {
     setFormData({ name: '', description: '', link: '' });
@@ -249,10 +258,14 @@ const CandidateList: React.FC = () => {
                           {recommendedTimes.map((timeSlot: any, index: number) => (
                             <button
                               key={index}
-                              onClick={() => {
-                                const slotId = `${timeSlot.date}-${timeSlot.bestSlot.hour}`;
-                                assignCandidateToSlot(candidate.id, slotId);
-                              }}
+                              onClick={() => setAppointmentModal({
+                                open: true,
+                                title: candidate.name,
+                                date: timeSlot.date,
+                                startTime: `${timeSlot.bestSlot.hour.toString().padStart(2, '0')}:00`,
+                                endTime: `${(timeSlot.bestSlot.hour + 1).toString().padStart(2, '0')}:00`,
+                                type: 'Vor Ort',
+                              })}
                               className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-medium hover:bg-blue-100 touch-manipulation"
                             >
                               {timeSlot.displayDate} {timeSlot.bestSlot.hour}:00
@@ -280,6 +293,27 @@ const CandidateList: React.FC = () => {
         targetId={notesModal?.candidateId || ''}
         title={notesModal?.candidateName || ''}
       />
+
+      {/* AppointmentModal für Kandidaten */}
+      {appointmentModal && (
+        <AppointmentModal
+          open={appointmentModal.open}
+          initialTitle={appointmentModal.title}
+          initialDate={appointmentModal.date}
+          initialStartTime={appointmentModal.startTime}
+          initialEndTime={appointmentModal.endTime}
+          initialType={appointmentModal.type}
+          onSave={async (form) => {
+            await fetch('/api/appointments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...form, comments: [] }),
+            });
+            setAppointmentModal(null);
+          }}
+          onCancel={() => setAppointmentModal(null)}
+        />
+      )}
     </div>
   );
 };
