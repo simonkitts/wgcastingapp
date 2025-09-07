@@ -9,7 +9,7 @@ function formatLocalDate(date: Date): string {
 }
 
 const AvailabilityCalendar: React.FC = () => {
-  const { data, cycleAvailabilityStatus, getSlotStatus, getHeatmapData } = useData();
+  const { data, cycleAvailabilityStatus, getSlotStatus, getHeatmapData, removeAvailability } = useData();
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return formatLocalDate(today);
@@ -91,6 +91,62 @@ const AvailabilityCalendar: React.FC = () => {
     return data.slotNotes.filter(note => note.slotId === slotId);
   };
 
+  // Helper: Get all future hours for the selected date
+  const getFutureHours = () => {
+    const now = new Date();
+    const selected = new Date(selectedDate);
+    if (selected > now) {
+      return hours;
+    } else if (selected.toDateString() === now.toDateString()) {
+      return hours.filter(hour => hour >= now.getHours());
+    } else {
+      return [];
+    }
+  };
+
+  // Handler: Cycle all future slots
+  const handleCycleAllFutureSlots = () => {
+    const futureHours = getFutureHours();
+    futureHours.forEach(hour => {
+      cycleAvailabilityStatus(selectedDate, hour);
+    });
+  };
+
+  // Handler: Deselect all future slots
+  const handleDeselectAllFutureSlots = () => {
+    const futureHours = getFutureHours();
+    futureHours.forEach(hour => {
+      // Remove the slot for this user, day, and hour (set to 'none')
+      const slot = data.availability.find(
+        slot => slot.day === selectedDate &&
+                slot.userId === data.currentUserId &&
+                hour >= slot.startHour &&
+                hour < slot.endHour
+      );
+      if (slot) {
+        // Remove the slot (set to 'none')
+        removeAvailability(slot.id);
+      }
+    });
+  };
+
+  // Remove all slots for the current user that are in the past (set to 'none')
+  React.useEffect(() => {
+    const now = new Date();
+    data.availability.forEach(slot => {
+      if (slot.userId !== data.currentUserId) return;
+      const slotDate = new Date(slot.day);
+      if (slotDate < now && slotDate.toDateString() !== now.toDateString()) {
+        removeAvailability(slot.id);
+        return;
+      }
+      if (slotDate.toDateString() === now.toDateString() && slot.endHour <= now.getHours()) {
+        removeAvailability(slot.id);
+      }
+    });
+    // eslint-disable-next-line
+  }, [data.currentUserId, selectedDate]);
+
   return (
     <div className="p-4">
       {/* Month Navigation */}
@@ -129,6 +185,27 @@ const AvailabilityCalendar: React.FC = () => {
         ref={calendarRef}
         className="bg-white rounded-lg border border-gray-200 overflow-hidden"
       >
+        {/* Cycle all future slots button and Deselect all button */}
+        {getFutureHours().length > 0 && (
+          <div className="flex justify-end p-2 gap-2 bg-gray-50 border-b border-gray-200">
+            <button
+              className="px-3 py-1 rounded bg-primary-500 text-white font-medium hover:bg-primary-600 transition disabled:opacity-50"
+              onClick={handleCycleAllFutureSlots}
+              disabled={getFutureHours().length === 0}
+              title="Cycle status for all future slots today"
+            >
+              Alle Markieren
+            </button>
+            <button
+              className="px-3 py-1 rounded bg-gray-300 text-gray-800 font-medium hover:bg-gray-400 transition disabled:opacity-50"
+              onClick={handleDeselectAllFutureSlots}
+              disabled={getFutureHours().length === 0}
+              title="Deselect all future slots today"
+            >
+              Alle abwählen
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-px bg-gray-200">
           {hours.map((hour) => {
             const slotStatus = getSlotStatus(selectedDate, hour);
