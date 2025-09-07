@@ -21,7 +21,7 @@ interface Appointment {
 }
 
 const AppointmentList: React.FC = () => {
-  const { data, fetchAppointmentsFromServer, currentUser } = useData();
+  const { data, fetchAppointmentsFromServer, currentUser, addAppointment } = useData();
   const appointments = data.appointments;
   const [isAdding, setIsAdding] = useState(false);
   const [form, setForm] = useState({
@@ -34,6 +34,7 @@ const AppointmentList: React.FC = () => {
   const [commentInput, setCommentInput] = useState('');
   const [activeComments, setActiveComments] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   // Termine beim Mount laden
   useEffect(() => {
@@ -42,24 +43,21 @@ const AppointmentList: React.FC = () => {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAddError(null);
     if (!form.title || !form.date || !form.startTime || !form.endTime || !form.type) return;
-    const newAppointment = {
-      id: Date.now().toString(),
-      title: form.title,
-      date: form.date,
-      startTime: form.startTime,
-      endTime: form.endTime,
-      type: form.type,
-      comments: [],
-    };
-    await fetch('/api/appointments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newAppointment),
-    });
-    setIsAdding(false); // Fenster direkt schließen
-    setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' });
-    await fetchAppointmentsFromServer();
+    try {
+      await addAppointment({
+        title: form.title,
+        date: form.date,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        type: form.type,
+      });
+      setIsAdding(false); // Fenster direkt schließen
+      setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' });
+    } catch (err: any) {
+      setAddError('Fehler beim Hinzufügen des Termins. Bitte prüfe die Eingaben.');
+    }
   };
 
   const handleAddComment = async (id: string) => {
@@ -142,6 +140,7 @@ const AppointmentList: React.FC = () => {
       {isAdding && (
         <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
           <h3 className="font-medium mb-3">Neuen Termin hinzufügen</h3>
+          {addError && <div className="text-red-600 text-sm mb-2">{addError}</div>}
           <form onSubmit={handleAdd} className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Überschrift *</label>

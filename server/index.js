@@ -295,7 +295,10 @@ app.post('/api/appointments', (req, res) => {
     return res.status(400).json({ error: 'Termin muss title, date, startTime, endTime und type haben.' });
   }
   appointments.push(newAppointment);
-  writeAppointments(appointments);
+  const success = writeAppointments(appointments);
+  if (!success) {
+    return res.status(500).json({ error: 'Fehler beim Speichern des Termins.' });
+  }
   res.json(newAppointment);
 });
 

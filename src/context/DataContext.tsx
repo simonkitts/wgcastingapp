@@ -45,11 +45,15 @@ interface DataContextType {
   getBestTimeSlots: (day: string) => { hour: number; userCount: number }[];
   syncWithServer: () => Promise<void>;
   fetchAppointmentsFromServer: () => Promise<void>;
+  addAppointment: (appointment: Omit<Appointment, 'id' | 'comments'>) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL =
+  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:3001/api'
+    : '/api';
 const STORAGE_KEY = 'wg-casting-data';
 
 const initialData: AppData = {
@@ -430,7 +434,7 @@ export function DataProvider({ children }: DataProviderProps) {
         updateAvailability(existingSlot.id, { status: newStatus });
       }
     } else {
-      // No existing slot, create new one with 'present' status
+      // No existing slot, add new with 'present' status
       addAvailability({
         userId: currentUser,
         day,
@@ -438,6 +442,23 @@ export function DataProvider({ children }: DataProviderProps) {
         endHour: hour + 1,
         status: 'present',
       });
+    }
+  };
+
+  // Add appointment to backend and reload appointments
+  const addAppointment = async (appointment: Omit<Appointment, 'id' | 'comments'>) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appointment),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to add appointment');
+      }
+      await fetchAppointmentsFromServer();
+    } catch (error) {
+      console.error('Error adding appointment:', error);
     }
   };
 
@@ -463,7 +484,8 @@ export function DataProvider({ children }: DataProviderProps) {
         getHeatmapData,
         getBestTimeSlots,
         syncWithServer,
-        fetchAppointmentsFromServer, // NEU
+        fetchAppointmentsFromServer,
+        addAppointment,
       }}
     >
       {children}
