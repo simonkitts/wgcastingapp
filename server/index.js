@@ -319,6 +319,18 @@ app.post('/api/appointments/:id/comment', (req, res) => {
   res.json(appointments[idx]);
 });
 
+// API: Termin löschen
+app.delete('/api/appointments/:id', (req, res) => {
+  const { id } = req.params;
+  let appointments = readAppointments();
+  const newAppointments = appointments.filter(a => a.id !== id);
+  if (appointments.length === newAppointments.length) {
+    return res.status(404).json({ error: 'Termin nicht gefunden' });
+  }
+  writeAppointments(newAppointments);
+  res.json({ success: true });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });

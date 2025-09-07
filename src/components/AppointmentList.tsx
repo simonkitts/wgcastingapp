@@ -57,9 +57,9 @@ const AppointmentList: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newAppointment),
     });
-    await fetchAppointmentsFromServer();
+    setIsAdding(false); // Fenster direkt schließen
     setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' });
-    setIsAdding(false);
+    await fetchAppointmentsFromServer();
   };
 
   const handleAddComment = async (id: string) => {
@@ -82,6 +82,7 @@ const AppointmentList: React.FC = () => {
       await fetch(`/api/appointments/${id}`, {
         method: 'DELETE',
       });
+      setExpandedId(null); // Expanded-Ansicht schließen
       await fetchAppointmentsFromServer();
     }
   };

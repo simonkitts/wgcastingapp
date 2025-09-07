@@ -198,13 +198,67 @@ Votes are stored in `server/votes.json` in the following format:
 ]
 ```
 
-## Deployment
+## Deployment & Hosting (Oracle Cloud, Ubuntu, Docker)
 
-This is a static React app that can be deployed to:
-- **Netlify**: Connect your GitHub repo for automatic deployments
-- **Vercel**: Import project for instant deployment
-- **GitHub Pages**: Use `gh-pages` package for deployment
-- **Any static hosting**: Upload the `build/` folder contents
+### 1. Voraussetzungen
+- Ubuntu-Server (z.B. Oracle Cloud Free Tier)
+- Domain (optional, für HTTPS/SSL)
+- Docker & Docker Compose installiert
+
+### 2. Firewall & Ports
+- Öffne in der Oracle Cloud Console die Ports 80 (HTTP) und 3001 (Backend-API) in der Security List.
+- Öffne die Ports auf dem Server:
+  ```sh
+  sudo ufw allow 80
+  sudo ufw allow 3001
+  ```
+
+### 3. Reverse Proxy (nginx)
+- Die App nutzt einen eigenen nginx-Service als Reverse Proxy (siehe `docker-compose.yml`).
+- Alle Anfragen an Port 80 werden an das Frontend oder an das Backend (`/api`) weitergeleitet.
+- Passe ggf. die Datei `nginx.conf` an deine Domain an.
+
+### 4. Domain & DNS
+- Lege einen A-Record für deine Domain an, der auf die öffentliche IP deines Servers zeigt.
+
+### 5. HTTPS/SSL (Let's Encrypt)
+- Empfohlen: Richte ein SSL-Zertifikat mit [Let's Encrypt](https://letsencrypt.org/) ein.
+- Beispiel für SSL in `nginx.conf` (siehe Projektordner für Vorlage):
+  - Zertifikate werden mit certbot erzeugt und in `/etc/letsencrypt/live/your-domain/` abgelegt.
+- Nginx übernimmt die HTTPS-Terminierung und leitet Anfragen intern weiter.
+
+### 6. Docker-Volumes & Datenpersistenz
+- Die Votes, Kandidaten usw. werden im Volume `./server/data:/app/server/data` gespeichert.
+- **Backup-Empfehlung:** Sichere regelmäßig das Verzeichnis `server/data`.
+
+### 7. Umgebungsvariablen
+- Passe Umgebungsvariablen in der `docker-compose.yml` an (z.B. `NODE_ENV=production`).
+- Für weitere Variablen kannst du eine `.env`-Datei nutzen.
+
+### 8. Deployment
+1. Projekt auf den Server kopieren (`scp` oder Git).
+2. Im Projektordner:
+   ```sh
+   docker compose up -d --build
+   ```
+3. Die App ist jetzt unter `http://<deine-domain>` erreichbar.
+
+### 9. Sicherheit
+- Deaktiviere nicht benötigte Ports in der Compose-Datei und auf dem Server.
+- Halte das System und Docker aktuell (`sudo apt update && sudo apt upgrade`).
+- Optional: HTTP Basic Auth für das Backend in nginx aktivieren (siehe Beispiel in `nginx.conf`).
+
+### 10. Updates
+- Für Updates: Code aktualisieren, dann erneut ausführen:
+  ```sh
+  docker compose up -d --build
+  ```
+
+---
+
+**Tipp:**
+- Für SSL/Let's Encrypt siehe Beispiel in `nginx.conf` und [Certbot-Dokumentation](https://certbot.eff.org/instructions).
+- Für Backups: Nutze z.B. `rsync` oder einen Cloud-Backup-Service für das Verzeichnis `server/data`.
 
 ## Future Enhancements
 
