@@ -24,4 +24,4 @@ yarn-error.log*
 
 /.idea
 
-server/data/
+/server/data/
