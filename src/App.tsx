@@ -15,7 +15,7 @@ const MainApp: React.FC = () => {
     if (activeTab === 'appointments') {
       fetchAppointmentsFromServer();
     }
-  }, [activeTab, fetchAppointmentsFromServer]);
+  }, [activeTab]); // Remove fetchAppointmentsFromServer from dependencies
 
   if (!currentUser) {
     return <Login onLogin={login} isLoading={isLoading} />;

@@ -34,11 +34,11 @@ A mobile-first web application for shared flats (WG) to organize casting intervi
 
 ### 💾 Server-Side Data Persistence
 - **Express.js backend** with REST API endpoints
-- **JSON file storage** for vote persistence
+- **JSONBin.io cloud storage** for data persistence
 - **Real-time synchronization** across all users
 - **Automatic conflict resolution** for overlapping edits
 - **Multi-user session management**
-- **API endpoints**: `/api/votes`, `/api/usernames`
+- **API endpoints**: `/api/votes`, `/api/usernames`, `/api/candidates`, `/api/slotNotes`, `/api/appointments`
 
 ### 📱 Mobile-First Design
 - Fully responsive and touch-friendly interface
@@ -63,7 +63,19 @@ A mobile-first web application for shared flats (WG) to organize casting intervi
    ```bash
    npm install
    ```
-4. Start both backend and frontend (recommended):
+4. Set up JSONBin.io:
+   - Sign up for a free account at [JSONBin.io](https://jsonbin.io/)
+   - Create a new API key in your account settings
+   - Copy the `.env.example` file to `.env` in the server directory:
+     ```bash
+     cp server/.env.example server/.env
+     ```
+   - Edit the `.env` file and add your JSONBin.io API key:
+     ```
+     JSONBIN_API_KEY=your_jsonbin_api_key_here
+     ```
+   - The bin ID will be created automatically on first run and displayed in the console
+5. Start both backend and frontend (recommended):
    ```bash
    npm run dev
    ```
@@ -75,8 +87,8 @@ A mobile-first web application for shared flats (WG) to organize casting intervi
    # Terminal 2: Start frontend
    npm start
    ```
-5. Open [http://localhost:3000](http://localhost:3000) in your browser
-6. Enter a unique username to begin selecting availability
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
+7. Enter a unique username to begin selecting availability
 
 ### Build for Production
 
@@ -127,7 +139,7 @@ npm run build
 **Backend:**
 - **Express.js** server
 - **CORS** for cross-origin requests
-- **JSON file storage** (server/votes.json)
+- **JSONBin.io cloud storage** (server/votes.json)
 - RESTful API design
 
 ### Project Structure

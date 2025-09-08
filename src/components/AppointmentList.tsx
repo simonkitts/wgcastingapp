@@ -39,7 +39,7 @@ const AppointmentList: React.FC = () => {
   // Termine beim Mount laden
   useEffect(() => {
     fetchAppointmentsFromServer();
-  }, [fetchAppointmentsFromServer]);
+  }, []); // Remove fetchAppointmentsFromServer from dependencies
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
