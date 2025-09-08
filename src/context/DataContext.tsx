@@ -51,9 +51,10 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 const API_BASE_URL =
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:3001/api'
-    : '/api';
+  process.env.REACT_APP_API_URL || 'https://wgcastingapp.onrender.com/api';
+//  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+//    ? 'http://localhost:3001/api'
+//    : '/api');
 const STORAGE_KEY = 'wg-casting-data';
 
 const initialData: AppData = {
