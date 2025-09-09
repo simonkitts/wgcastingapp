@@ -34,25 +34,8 @@ app.post('/api/votes', async (req, res) => {
       return res.status(400).json({ error: 'Username and votes array are required' });
     }
 
-    // Read existing votes
-    let allVotes = await jsonBinService.readVotes();
-
-    // Remove existing votes for this username
-    allVotes = allVotes.filter(vote => vote.username !== username);
-    
-    // Add new votes for this username
-    const formattedVotes = newVotes.map(vote => ({
-      username,
-      day: vote.day,
-      start: vote.start,
-      end: vote.end,
-      status: vote.status || 'available' // Default to 'available' for backwards compatibility
-    }));
-    
-    allVotes.push(...formattedVotes);
-    
-    // Write back to JSONBin
-    const success = await jsonBinService.writeVotes(allVotes);
+    // Use service-level atomic update to avoid race conditions
+    const success = await jsonBinService.updateUserVotes(username, newVotes);
 
     if (success) {
       res.json({ success: true, message: 'Votes saved successfully' });
