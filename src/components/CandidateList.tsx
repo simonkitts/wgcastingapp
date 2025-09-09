@@ -290,6 +290,13 @@ const CandidateList: React.FC = () => {
         )}
       </div>
       
+      {/* Instructions */}
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+        <p className="text-sm text-blue-700">
+          <strong>Tippe</strong> auf einen Namen um Beschreibung und mehr zu sehen.
+        </p>
+      </div>
+
       {/* Notes Modal */}
       <NotesModal
         isOpen={notesModal?.isOpen || false}
