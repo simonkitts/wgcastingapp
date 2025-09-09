@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { AppData, AvailabilitySlot, Candidate, SlotNote, AvailabilityStatus } from '../types';
 
 interface ServerVote {
@@ -46,6 +46,10 @@ interface DataContextType {
   syncWithServer: () => Promise<void>;
   fetchAppointmentsFromServer: () => Promise<void>;
   addAppointment: (appointment: Omit<Appointment, 'id' | 'comments'>) => Promise<void>;
+  // NEW: allow consumers to fetch candidates on demand
+  fetchCandidatesFromServer: () => Promise<void>;
+  // NEW: expose voteCandidate function
+  voteCandidate: (candidateId: string, vote: 'up' | 'down') => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -53,7 +57,6 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 const API_BASE_URL = process.env.NODE_ENV === 'production'
   ? process.env.REACT_APP_API_URL || 'https://wgcastingapp.onrender.com/api'
   : '/api';
-const STORAGE_KEY = 'wg-casting-data';
 
 const initialData: AppData = {
   availability: [],
@@ -73,7 +76,7 @@ export function DataProvider({ children }: DataProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   // Helper functions for server communication
-  const convertAvailabilityToServerVotes = (availability: AvailabilitySlot[]): ServerVote[] => {
+  const convertAvailabilityToServerVotes = useCallback((availability: AvailabilitySlot[]): ServerVote[] => {
     return availability.map(slot => ({
       username: slot.userId,
       day: slot.day,
@@ -81,9 +84,9 @@ export function DataProvider({ children }: DataProviderProps) {
       end: `${slot.endHour.toString().padStart(2, '0')}:00`,
       status: slot.status,
     }));
-  };
+  }, []);
 
-  const convertServerVotesToAvailability = (votes: ServerVote[]): AvailabilitySlot[] => {
+  const convertServerVotesToAvailability = useCallback((votes: ServerVote[]): AvailabilitySlot[] => {
     return votes.map(vote => ({
       id: `${vote.username}-${vote.day}-${vote.start}-${vote.end}-${vote.status}`,
       userId: vote.username,
@@ -92,7 +95,7 @@ export function DataProvider({ children }: DataProviderProps) {
       endHour: parseInt(vote.end.split(':')[0]),
       status: vote.status || 'available', // fallback for backwards compatibility
     }));
-  };
+  }, []);
 
   // Kandidaten aus Backend laden
   const fetchCandidatesFromServer = async () => {
@@ -153,7 +156,7 @@ export function DataProvider({ children }: DataProviderProps) {
   };
 
   // Termine aus Backend laden
-  const fetchAppointmentsFromServer = async () => {
+  const fetchAppointmentsFromServer = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/appointments`);
       if (response.ok) {
@@ -163,34 +166,9 @@ export function DataProvider({ children }: DataProviderProps) {
     } catch (error) {
       console.error('Error fetching appointments:', error);
     }
-  };
-
-  // Load candidates, notes und aktuellen Nutzer aus localStorage
-  useEffect(() => {
-    fetchCandidatesFromServer();
-    fetchSlotNotesFromServer();
-    // NEU: Nutzer aus localStorage laden
-    const storedUser = localStorage.getItem('wg-casting-user');
-    if (storedUser) {
-      setCurrentUser(storedUser);
-      setData(prev => ({ ...prev, currentUserId: storedUser }));
-      syncWithServer();
-    }
   }, []);
 
-  // useEffect: Kommentare ins Backend speichern
-  useEffect(() => {
-    saveSlotNotesToServer(data.slotNotes);
-  }, [data.slotNotes]);
-
-  // useEffect: Votes ins Backend speichern, wenn sich data.availability ändert
-  useEffect(() => {
-    if (currentUser) {
-      submitVotesToServer();
-    }
-  }, [data.availability]);
-
-  const syncWithServer = async () => {
+  const syncWithServer = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/votes`);
       if (response.ok) {
@@ -202,9 +180,9 @@ export function DataProvider({ children }: DataProviderProps) {
     } catch (error) {
       console.error('Error syncing with server:', error);
     }
-  };
+  }, [convertServerVotesToAvailability]);
 
-  const submitVotesToServer = async () => {
+  const submitVotesToServer = useCallback(async () => {
     if (!currentUser) return;
 
     const userAvailability = data.availability.filter(slot => slot.userId === currentUser);
@@ -230,7 +208,32 @@ export function DataProvider({ children }: DataProviderProps) {
     } catch (error) {
       console.error('Error submitting votes:', error);
     }
-  };
+  }, [currentUser, data.availability, convertAvailabilityToServerVotes]);
+
+  // Load candidates, notes und aktuellen Nutzer aus localStorage
+  useEffect(() => {
+    fetchCandidatesFromServer();
+    fetchSlotNotesFromServer();
+    // NEU: Nutzer aus localStorage laden
+    const storedUser = localStorage.getItem('wg-casting-user');
+    if (storedUser) {
+      setCurrentUser(storedUser);
+      setData(prev => ({ ...prev, currentUserId: storedUser }));
+      syncWithServer();
+    }
+  }, [syncWithServer]);
+
+  // useEffect: Kommentare ins Backend speichern
+  useEffect(() => {
+    saveSlotNotesToServer(data.slotNotes);
+  }, [data.slotNotes]);
+
+  // useEffect: Votes ins Backend speichern, wenn sich data.availability ändert
+  useEffect(() => {
+    if (currentUser) {
+      submitVotesToServer();
+    }
+  }, [data.availability, currentUser, submitVotesToServer]);
 
   const login = async (username: string) => {
     setIsLoading(true);
@@ -274,7 +277,7 @@ export function DataProvider({ children }: DataProviderProps) {
   const updateAvailability = (id: string, updates: Partial<AvailabilitySlot>) => {
     setData(prev => ({
       ...prev,
-      availability: prev.availability.map(slot => 
+      availability: prev.availability.map(slot =>
         slot.id === id ? { ...slot, ...updates, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) } : slot
       ),
     }));
@@ -355,12 +358,12 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const getHeatmapData = (day: string): { [hour: number]: number } => {
     const heatmap: { [hour: number]: number } = {};
-    
+
     // Initialize hours 10-22 with 0
     for (let hour = 10; hour <= 22; hour++) {
       heatmap[hour] = 0;
     }
-    
+
     // Count available users for each hour (all users, not just current user)
     const daySlots = getAvailabilityForDay(day);
     daySlots.forEach(slot => {
@@ -371,7 +374,7 @@ export function DataProvider({ children }: DataProviderProps) {
         }
       }
     });
-    
+
     return heatmap;
   };
 
@@ -394,9 +397,9 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const getSlotStatus = (day: string, hour: number): AvailabilityStatus | null => {
     const slot = data.availability.find(
-      slot => slot.day === day && 
-      slot.userId === data.currentUserId && 
-      hour >= slot.startHour && 
+      slot => slot.day === day &&
+      slot.userId === data.currentUserId &&
+      hour >= slot.startHour &&
       hour < slot.endHour
     );
     return slot ? slot.status : null;
@@ -404,15 +407,15 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const cycleAvailabilityStatus = (day: string, hour: number) => {
     if (!currentUser) return;
-    
+
     // Find existing slot for this hour
     const existingSlot = data.availability.find(
-      slot => slot.day === day && 
-      slot.userId === currentUser && 
-      hour >= slot.startHour && 
+      slot => slot.day === day &&
+      slot.userId === currentUser &&
+      hour >= slot.startHour &&
       hour < slot.endHour
     );
-    
+
     if (existingSlot) {
       // Cycle through states: present -> online -> unavailable -> remove
       const currentStatus = existingSlot.status;
@@ -485,6 +488,10 @@ export function DataProvider({ children }: DataProviderProps) {
         syncWithServer,
         fetchAppointmentsFromServer,
         addAppointment,
+        // expose fetchCandidatesFromServer to consumers
+        fetchCandidatesFromServer,
+        // expose voteCandidate function
+        voteCandidate,
       }}
     >
       {children}
@@ -494,7 +501,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
 export function useData() {
   const context = useContext(DataContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useData must be used within a DataProvider');
   }
   return context;

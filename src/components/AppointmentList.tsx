@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import NotesModal from './NotesModal';
 import { useData } from '../context/DataContext';
 
 export type AppointmentType = 'Vor Ort' | 'Online';
@@ -39,7 +38,36 @@ const AppointmentList: React.FC = () => {
   // Termine beim Mount laden
   useEffect(() => {
     fetchAppointmentsFromServer();
-  }, []); // Remove fetchAppointmentsFromServer from dependencies
+  }, [fetchAppointmentsFromServer]);
+
+  // Prefill defaults when opening the add form if fields are empty
+  useEffect(() => {
+    if (!isAdding) return;
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const formatDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const formatTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    const now = new Date();
+    const rounded = new Date(now);
+    const mins = now.getMinutes();
+    const add = mins % 30 === 0 ? 0 : 30 - (mins % 30);
+    rounded.setMinutes(mins + add, 0, 0);
+
+    const start = new Date(rounded);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+
+    setForm((prev) => {
+      if (prev.date && prev.startTime && prev.endTime) return prev;
+      return {
+        ...prev,
+        date: prev.date || formatDate(start),
+        startTime: prev.startTime || formatTime(start),
+        endTime: prev.endTime || formatTime(end),
+        type: prev.type || 'Vor Ort',
+      };
+    });
+  }, [isAdding]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();

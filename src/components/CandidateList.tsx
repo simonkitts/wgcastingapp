@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import { Candidate } from '../types';
 import NotesModal from './NotesModal';
 import AppointmentModal from './AppointmentModal';
 
 const CandidateList: React.FC = () => {
-  const { data, addCandidate, updateCandidate, deleteCandidate, getBestTimeSlots } = useData();
+  const { data, addCandidate, updateCandidate, deleteCandidate, getBestTimeSlots, fetchCandidatesFromServer } = useData();
   const [isAddingCandidate, setIsAddingCandidate] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState<string | null>(null);
   const [notesModal, setNotesModal] = useState<{ isOpen: boolean; candidateId: string; candidateName: string } | null>(null);
@@ -23,6 +23,11 @@ const CandidateList: React.FC = () => {
     endTime: string;
     type: 'Vor Ort' | 'Online';
   } | null>(null);
+
+  useEffect(() => {
+    // Ensure candidates are loaded when this tab mounts
+    fetchCandidatesFromServer();
+  }, []);
 
   const resetForm = () => {
     setFormData({ name: '', description: '', link: '' });

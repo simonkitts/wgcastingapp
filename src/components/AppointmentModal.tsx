@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 
 export type AppointmentType = 'Vor Ort' | 'Online';
 
@@ -23,24 +23,47 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   onSave,
   onCancel,
 }) => {
-  const [form, setForm] = useState({
-    title: initialTitle,
-    date: initialDate,
-    startTime: initialStartTime,
-    endTime: initialEndTime,
-    type: initialType as AppointmentType,
-  });
   const [saving, setSaving] = useState(false);
 
-  React.useEffect(() => {
-    setForm({
+  const computeDefaults = useCallback(() => {
+    // Helper formatting kept inside to avoid extra dependencies
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const formatDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const formatTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    let date = initialDate;
+    let startTime = initialStartTime;
+    let endTime = initialEndTime;
+
+    if (!date || !startTime || !endTime) {
+      const now = new Date();
+      const rounded = new Date(now);
+      const mins = now.getMinutes();
+      const add = mins % 30 === 0 ? 0 : 30 - (mins % 30); // next 30-min slot
+      rounded.setMinutes(mins + add, 0, 0);
+
+      const start = new Date(rounded);
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+
+      date = date || formatDate(start);
+      startTime = startTime || formatTime(start);
+      endTime = endTime || formatTime(end);
+    }
+
+    return {
       title: initialTitle,
-      date: initialDate,
-      startTime: initialStartTime,
-      endTime: initialEndTime,
-      type: initialType as AppointmentType,
-    });
-  }, [open, initialTitle, initialDate, initialStartTime, initialEndTime, initialType]);
+      date,
+      startTime,
+      endTime,
+      type: (initialType as AppointmentType) || 'Vor Ort',
+    };
+  }, [initialDate, initialEndTime, initialStartTime, initialTitle, initialType]);
+
+  const [form, setForm] = useState(computeDefaults);
+
+  React.useEffect(() => {
+    setForm(computeDefaults());
+  }, [open, computeDefaults]);
 
   if (!open) return null;
 
@@ -124,4 +147,3 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
 };
 
 export default AppointmentModal;
-

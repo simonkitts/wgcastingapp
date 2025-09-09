@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import NotesModal from './NotesModal';
 
@@ -16,6 +16,7 @@ const AvailabilityCalendar: React.FC = () => {
   });
   const [notesModal, setNotesModal] = useState<{ isOpen: boolean; slotId: string; hour: number } | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const dateListRef = useRef<HTMLDivElement>(null);
   const longPressTimers = useRef<{ [key: number]: NodeJS.Timeout }>({});
 
   // Generate current month dates
@@ -68,7 +69,7 @@ const AvailabilityCalendar: React.FC = () => {
 
   const getHeatmapIntensity = (day: string, hour: number) => {
     const heatmap = getHeatmapData(day);
-    const count = heatmap[hour] || 0;
+    const count = (heatmap as any)[hour] || 0;
     if (count === 0) return '';
     if (count === 1) return 'bg-blue-200';
     if (count === 2) return 'bg-blue-400';
@@ -147,6 +148,34 @@ const AvailabilityCalendar: React.FC = () => {
     // eslint-disable-next-line
   }, [data.currentUserId, selectedDate]);
 
+  // On mount: position the horizontal scrollbar so today's day button is at the left edge (no animation)
+  useEffect(() => {
+    const container = dateListRef.current;
+    if (!container) return;
+
+    const alignLeft = () => {
+      const todayStr = formatLocalDate(new Date());
+      const btn = container.querySelector(`button[data-date="${todayStr}"]`) as HTMLButtonElement | null;
+      if (btn) {
+        // Robust to varying paddings/margins and screen sizes
+        btn.scrollIntoView({ behavior: 'auto', inline: 'start', block: 'nearest' });
+      }
+    };
+
+    const raf = requestAnimationFrame(() => {
+      alignLeft();
+      requestAnimationFrame(alignLeft);
+    });
+
+    const onResize = () => alignLeft();
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [monthDates]);
+
   return (
     <div className="p-4">
       {/* Month Navigation */}
@@ -157,11 +186,12 @@ const AvailabilityCalendar: React.FC = () => {
       </div>
 
       {/* Date Selection */}
-      <div className="mb-4 overflow-x-auto">
+      <div className="mb-4 overflow-x-auto" ref={dateListRef}>
         <div className="flex space-x-1 pb-2">
           {monthDates.map((date) => (
             <button
               key={date.date}
+              data-date={date.date}
               onClick={() => setSelectedDate(date.date)}
               disabled={date.isPast}
               className={`flex-shrink-0 w-12 h-12 rounded-lg text-sm font-medium touch-manipulation ${

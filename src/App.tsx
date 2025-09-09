@@ -8,14 +8,16 @@ import { DataProvider, useData } from './context/DataContext';
 type TabType = 'calendar' | 'candidates' | 'appointments';
 
 const MainApp: React.FC = () => {
-  const { currentUser, logout, login, isLoading, fetchAppointmentsFromServer } = useData();
+  const { currentUser, logout, login, isLoading, fetchAppointmentsFromServer, fetchCandidatesFromServer } = useData();
   const [activeTab, setActiveTab] = useState<TabType>('calendar');
 
   useEffect(() => {
     if (activeTab === 'appointments') {
       fetchAppointmentsFromServer();
+    } else if (activeTab === 'candidates') {
+      fetchCandidatesFromServer();
     }
-  }, [activeTab]); // Remove fetchAppointmentsFromServer from dependencies
+  }, [activeTab]); // intentionally omit functions from deps to avoid re-run on identity change
 
   if (!currentUser) {
     return <Login onLogin={login} isLoading={isLoading} />;
