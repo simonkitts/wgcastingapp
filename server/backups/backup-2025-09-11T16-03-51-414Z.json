@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-09-11T16:03:51.424Z",
+  "mainBinId": "68bee889ae596e708fe6eed1",
+  "votesBinId": "68c0435743b1c97be93c929f",
+  "main": {
+    "mock": true,
+    "note": "DRY_RUN enabled - no network calls"
+  },
+  "votes": {
+    "mock": true,
+    "note": "DRY_RUN enabled - no network calls"
+  }
+}
