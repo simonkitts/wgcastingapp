@@ -20,9 +20,10 @@ interface Appointment {
 }
 
 const AppointmentList: React.FC = () => {
-  const { data, fetchAppointmentsFromServer, currentUser, addAppointment } = useData();
+  const { data, fetchAppointmentsFromServer, currentUser, addAppointment, updateAppointment, deleteAppointment, addAppointmentComment } = useData();
   const appointments = data.appointments;
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: '',
     date: '',
@@ -69,33 +70,44 @@ const AppointmentList: React.FC = () => {
     });
   }, [isAdding]);
 
+  const resetForm = () => {
+    setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' });
+    setEditingId(null);
+    setIsAdding(false);
+    setAddError(null);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddError(null);
     if (!form.title || !form.date || !form.startTime || !form.endTime || !form.type) return;
     try {
-      await addAppointment({
-        title: form.title,
-        date: form.date,
-        startTime: form.startTime,
-        endTime: form.endTime,
-        type: form.type,
-      });
-      setIsAdding(false); // Fenster direkt schließen
-      setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' });
+      if (editingId) {
+        await updateAppointment(editingId, { ...form });
+      } else {
+        await addAppointment({ ...form });
+      }
+      resetForm();
     } catch (err: any) {
-      setAddError('Fehler beim Hinzufügen des Termins. Bitte prüfe die Eingaben.');
+      setAddError('Fehler beim Speichern des Termins. Bitte prüfe die Eingaben.');
     }
+  };
+
+  const handleEdit = (app: Appointment) => {
+    setForm({
+      title: app.title,
+      date: app.date,
+      startTime: app.startTime,
+      endTime: app.endTime,
+      type: app.type,
+    });
+    setEditingId(app.id);
+    setIsAdding(true);
   };
 
   const handleAddComment = async (id: string) => {
     if (!commentInput.trim()) return;
-    await fetch(`/api/appointments/${id}/comment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comment: { text: commentInput, timestamp: Date.now(), author: currentUser || 'Unbekannt' } }),
-    });
-    await fetchAppointmentsFromServer();
+    await addAppointmentComment(id, { text: commentInput, timestamp: Date.now(), author: currentUser || 'Unbekannt' });
     setCommentInput('');
   };
 
@@ -105,11 +117,8 @@ const AppointmentList: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Bist du sicher, dass du diesen Termin löschen möchtest?')) {
-      await fetch(`/api/appointments/${id}`, {
-        method: 'DELETE',
-      });
-      setExpandedId(null); // Expanded-Ansicht schließen
-      await fetchAppointmentsFromServer();
+      await deleteAppointment(id);
+      setExpandedId(null);
     }
   };
 
@@ -158,7 +167,7 @@ const AppointmentList: React.FC = () => {
         <h2 className="text-lg font-semibold">Termine</h2>
         <button
           className="bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-600 touch-manipulation"
-          onClick={() => setIsAdding(true)}
+          onClick={() => { setIsAdding(true); setEditingId(null); setForm({ title: '', date: '', startTime: '', endTime: '', type: 'Vor Ort' }); }}
         >
           + Termin hinzufügen
         </button>
@@ -167,7 +176,7 @@ const AppointmentList: React.FC = () => {
       {/* Add/Edit Form */}
       {isAdding && (
         <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
-          <h3 className="font-medium mb-3">Neuen Termin hinzufügen</h3>
+          <h3 className="font-medium mb-3">{editingId ? 'Termin bearbeiten' : 'Neuen Termin hinzufügen'}</h3>
           {addError && <div className="text-red-600 text-sm mb-2">{addError}</div>}
           <form onSubmit={handleAdd} className="space-y-3">
             <div>
@@ -225,8 +234,8 @@ const AppointmentList: React.FC = () => {
               </select>
             </div>
             <div className="flex space-x-3">
-              <button type="submit" className="bg-primary-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-600 touch-manipulation">Termin Hinzufügen</button>
-              <button type="button" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-200 touch-manipulation" onClick={() => setIsAdding(false)}>Abbrechen</button>
+              <button type="submit" className="bg-primary-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-600 touch-manipulation">Termin {editingId ? 'Bearbeiten' : 'Hinzufügen'}</button>
+              <button type="button" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-200 touch-manipulation" onClick={resetForm}>Abbrechen</button>
             </div>
           </form>
         </div>
@@ -297,6 +306,12 @@ const AppointmentList: React.FC = () => {
                       </button>
                     </div>
                     <div className="flex gap-2 mt-3">
+                      <button
+                        className="px-2 py-1 text-xs bg-blue-100 rounded hover:bg-blue-200 text-blue-700 border border-blue-200 font-medium"
+                        onClick={() => handleEdit(app)}
+                      >
+                        Bearbeiten
+                      </button>
                       <button
                         className="px-2 py-1 text-xs bg-red-100 rounded hover:bg-red-200 text-red-700 border border-red-200 font-medium"
                         onClick={() => handleDelete(app.id)}

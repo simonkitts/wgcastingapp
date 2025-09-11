@@ -50,6 +50,10 @@ interface DataContextType {
   fetchCandidatesFromServer: () => Promise<void>;
   // NEW: expose voteCandidate function
   voteCandidate: (candidateId: string, vote: 'up' | 'down') => Promise<void>;
+  // NEW: appointment helpers
+  updateAppointment: (id: string, updates: Partial<Appointment>) => Promise<void>;
+  deleteAppointment: (id: string) => Promise<void>;
+  addAppointmentComment: (id: string, comment: AppointmentComment) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -214,6 +218,8 @@ export function DataProvider({ children }: DataProviderProps) {
   useEffect(() => {
     fetchCandidatesFromServer();
     fetchSlotNotesFromServer();
+    // NEW: Load appointments on app start so Calendar has data immediately
+    fetchAppointmentsFromServer();
     // NEU: Nutzer aus localStorage laden
     const storedUser = localStorage.getItem('wg-casting-user');
     if (storedUser) {
@@ -464,6 +470,55 @@ export function DataProvider({ children }: DataProviderProps) {
     }
   };
 
+  // NEW: update an existing appointment
+  const updateAppointment = async (id: string, updates: Partial<Appointment>) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update appointment');
+      }
+      await fetchAppointmentsFromServer();
+    } catch (error) {
+      console.error('Error updating appointment:', error);
+    }
+  };
+
+  // NEW: delete an appointment
+  const deleteAppointment = async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments/${id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete appointment');
+      }
+      await fetchAppointmentsFromServer();
+    } catch (error) {
+      console.error('Error deleting appointment:', error);
+    }
+  };
+
+  // NEW: add a comment to an appointment
+  const addAppointmentComment = async (id: string, comment: AppointmentComment) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments/${id}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to add comment');
+      }
+      await fetchAppointmentsFromServer();
+    } catch (error) {
+      console.error('Error adding appointment comment:', error);
+    }
+  };
+
   // Im Context bereitstellen
   return (
     <DataContext.Provider
@@ -492,6 +547,10 @@ export function DataProvider({ children }: DataProviderProps) {
         fetchCandidatesFromServer,
         // expose voteCandidate function
         voteCandidate,
+        // NEW: appointment helpers
+        updateAppointment,
+        deleteAppointment,
+        addAppointmentComment,
       }}
     >
       {children}

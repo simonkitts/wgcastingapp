@@ -27,7 +27,7 @@ const CandidateList: React.FC = () => {
   useEffect(() => {
     // Ensure candidates are loaded when this tab mounts
     fetchCandidatesFromServer();
-  }, []);
+  }, [fetchCandidatesFromServer]);
 
   const resetForm = () => {
     setFormData({ name: '', description: '', link: '' });
@@ -71,10 +71,10 @@ const CandidateList: React.FC = () => {
     }
   };
 
-  const getRecommendedTimes = (candidateId: string) => {
+  const getRecommendedTimes = () => {
     const today = new Date();
-    const dates = [];
-    
+    const dates = [] as Array<{ date: string; displayDate: string; bestSlot: { hour: number; userCount: number } }>;
+
     // Get next 7 days
     for (let i = 0; i < 7; i++) {
       const date = new Date(today);
@@ -82,7 +82,7 @@ const CandidateList: React.FC = () => {
       // Lokales Datum statt UTC
       const dateStr = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
       const bestSlots = getBestTimeSlots(dateStr);
-      
+
       if (bestSlots.length > 0) {
         dates.push({
           date: dateStr,
@@ -91,13 +91,13 @@ const CandidateList: React.FC = () => {
         });
       }
     }
-    
+
     return dates.slice(0, 3); // Show top 3 recommendations
   };
 
-  const assignCandidateToSlot = (candidateId: string, slotId: string) => {
-    updateCandidate(candidateId, { assignedSlotId: slotId });
-  };
+  //const assignCandidateToSlot = (candidateId: string, slotId: string) => {
+  //  updateCandidate(candidateId, { assignedSlotId: slotId });
+  //};
 
   const handleStatusCycle = (candidate: Candidate, type: 'besichtigung' | 'casting') => {
     const statusKey = type === 'besichtigung' ? 'besichtigungStatus' : 'castingStatus';
@@ -197,7 +197,7 @@ const CandidateList: React.FC = () => {
           </div>
         ) : (
           data.candidates.map(candidate => {
-            const recommendedTimes = getRecommendedTimes(candidate.id);
+            const recommendedTimes = getRecommendedTimes();
             const isExpanded = expandedId === candidate.id;
             return (
               <div key={candidate.id} className="border rounded px-3 py-2 mb-2 flex flex-col bg-white shadow-sm">
@@ -289,7 +289,7 @@ const CandidateList: React.FC = () => {
           })
         )}
       </div>
-      
+
       {/* Instructions */}
       <div className="mt-4 p-3 bg-blue-50 rounded-lg">
         <p className="text-sm text-blue-700">
@@ -331,3 +331,4 @@ const CandidateList: React.FC = () => {
 };
 
 export default CandidateList;
+

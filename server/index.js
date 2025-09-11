@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const jsonBinService = require('./jsonBinService');
+const backupService = require('./backupService');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -13,6 +14,13 @@ app.use(express.json());
 jsonBinService.initializeBin().catch(error => {
   console.error('Failed to initialize JSONBin.io:', error.message);
 });
+
+// Start Google Drive backup schedule (runs once on startup and then every 6 hours)
+try {
+  backupService.startSchedule();
+} catch (e) {
+  console.warn('Backup scheduler not started:', e.message);
+}
 
 // GET /api/votes - Fetch all votes
 app.get('/api/votes', async (req, res) => {
@@ -251,6 +259,36 @@ app.post('/api/appointments/:id/comment', async (req, res) => {
   } catch (error) {
     console.error('Error adding comment:', error);
     res.status(500).json({ error: 'Failed to add comment' });
+  }
+});
+
+// NEW: API: Termin aktualisieren
+app.put('/api/appointments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+
+    let appointments = await jsonBinService.readAppointments();
+    const idx = appointments.findIndex(a => a.id === id);
+
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Termin nicht gefunden' });
+    }
+
+    // Preserve id and comments if not provided
+    const existing = appointments[idx];
+    const updated = { ...existing, ...updates, id: existing.id };
+    appointments[idx] = updated;
+
+    const success = await jsonBinService.writeAppointments(appointments);
+    if (!success) {
+      return res.status(500).json({ error: 'Fehler beim Aktualisieren des Termins.' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating appointment:', error);
+    res.status(500).json({ error: 'Failed to update appointment' });
   }
 });
 

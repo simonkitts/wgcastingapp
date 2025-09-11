@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../context/DataContext';
-import NotesModal from './NotesModal';
 
 function formatLocalDate(date: Date): string {
   return date.getFullYear() + '-' +
@@ -9,15 +8,31 @@ function formatLocalDate(date: Date): string {
 }
 
 const AvailabilityCalendar: React.FC = () => {
-  const { data, cycleAvailabilityStatus, getSlotStatus, getHeatmapData, removeAvailability } = useData();
+  const { data, cycleAvailabilityStatus, getSlotStatus, removeAvailability, addSlotNote } = useData();
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
     return formatLocalDate(today);
   });
-  const [notesModal, setNotesModal] = useState<{ isOpen: boolean; slotId: string; hour: number } | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
   const dateListRef = useRef<HTMLDivElement>(null);
-  const longPressTimers = useRef<{ [key: number]: NodeJS.Timeout }>({});
+
+  // New: local state for day-level comment input
+  const [dayComment, setDayComment] = useState('');
+
+  // NEW: appointment helpers
+  const hasAppointmentsOnDate = (day: string) => data.appointments.some(app => app.date === day);
+/*  const isHourWithinAnyAppointment = (day: string, hour: number) => {
+    const slotStart = hour * 60;
+    const slotEnd = (hour + 1) * 60;
+    return data.appointments.some(app => {
+      if (app.date !== day) return false;
+      const [sh, sm] = app.startTime.split(':').map(Number);
+      const [eh, em] = app.endTime.split(':').map(Number);
+      const apptStart = sh * 60 + (isNaN(sm) ? 0 : sm);
+      const apptEnd = eh * 60 + (isNaN(em) ? 0 : em);
+      return apptStart < slotEnd && apptEnd > slotStart;
+    });
+  };*/
 
   // Generate current month dates
   const generateMonthDates = () => {
@@ -25,7 +40,8 @@ const AvailabilityCalendar: React.FC = () => {
     const year = today.getFullYear();
     const month = today.getMonth();
     const lastDay = new Date(year, month + 1, 0);
-    const dates = [];
+    const dates = [] as Array<{ date: string; day: number; isToday: boolean; isPast: boolean; weekday: string }>;
+    const weekDays = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
     for (let d = 1; d <= lastDay.getDate(); d++) {
       const date = new Date(year, month, d);
       dates.push({
@@ -33,6 +49,7 @@ const AvailabilityCalendar: React.FC = () => {
         day: d,
         isToday: date.toDateString() === today.toDateString(),
         isPast: date < today && date.toDateString() !== today.toDateString(),
+        weekday: weekDays[date.getDay()],
       });
     }
     return dates;
@@ -67,16 +84,6 @@ const AvailabilityCalendar: React.FC = () => {
     }
   };
 
-  const getHeatmapIntensity = (day: string, hour: number) => {
-    const heatmap = getHeatmapData(day);
-    const count = (heatmap as any)[hour] || 0;
-    if (count === 0) return '';
-    if (count === 1) return 'bg-blue-200';
-    if (count === 2) return 'bg-blue-400';
-    if (count >= 3) return 'bg-blue-600';
-    return '';
-  };
-
   const handleSlotClick = (hour: number, day: string) => {
     // Don't allow clicking on past hours
     const now = new Date();
@@ -85,11 +92,6 @@ const AvailabilityCalendar: React.FC = () => {
     const isPastHour = slotDate.toDateString() === now.toDateString() && hour < now.getHours();
     if (isPastHour) return;
     cycleAvailabilityStatus(day, hour);
-  };
-
-  const getNotesForSlot = (day: string, hour: number) => {
-    const slotId = `${day}-${hour}`;
-    return data.slotNotes.filter(note => note.slotId === slotId);
   };
 
   // Helper: Get all future hours for the selected date
@@ -176,6 +178,16 @@ const AvailabilityCalendar: React.FC = () => {
     };
   }, [monthDates]);
 
+  // New: day-level notes helpers
+  const dayNotes = data.slotNotes.filter(n => n.slotId === selectedDate);
+  const handleAddDayNote = () => {
+    const text = dayComment.trim();
+    if (!text) return;
+    if (!data.currentUserId) return;
+    addSlotNote({ slotId: selectedDate, text, userId: data.currentUserId, timestamp: Date.now() });
+    setDayComment('');
+  };
+
   return (
     <div className="p-4">
       {/* Month Navigation */}
@@ -194,7 +206,7 @@ const AvailabilityCalendar: React.FC = () => {
               data-date={date.date}
               onClick={() => setSelectedDate(date.date)}
               disabled={date.isPast}
-              className={`flex-shrink-0 w-12 h-12 rounded-lg text-sm font-medium touch-manipulation ${
+              className={`relative flex-shrink-0 w-12 h-12 rounded-lg text-sm font-medium touch-manipulation flex flex-col items-center justify-center ${
                 selectedDate === date.date
                   ? 'bg-primary-500 text-white'
                   : date.isPast
@@ -204,7 +216,12 @@ const AvailabilityCalendar: React.FC = () => {
                   : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
               }`}
             >
-              {date.day}
+              <span className="text-[10px] leading-none mb-0.5">{date.weekday}</span>
+              <span className="leading-none">{date.day}</span>
+              {/* NEW: Show notification dot for days with appointments */}
+              {hasAppointmentsOnDate(date.date) && (
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              )}
             </button>
           ))}
         </div>
@@ -239,41 +256,35 @@ const AvailabilityCalendar: React.FC = () => {
         <div className="grid grid-cols-1 gap-px bg-gray-200">
           {hours.map((hour) => {
             const slotStatus = getSlotStatus(selectedDate, hour);
-            const heatmapClass = getHeatmapIntensity(selectedDate, hour);
-            const slotNotes = getNotesForSlot(selectedDate, hour);
-            const isPastHour = new Date(selectedDate).toDateString() === new Date().toDateString() && 
+            const isPastHour = new Date(selectedDate).toDateString() === new Date().toDateString() &&
                               hour < new Date().getHours();
-            const baseStatusClass = getSlotStatusClass(slotStatus);
-            const finalClass = slotStatus ? baseStatusClass : (heatmapClass ? `${heatmapClass} hover:opacity-80 border-gray-200` : baseStatusClass);
 
-            // NEU: Alle Nutzer und deren Status für diesen Slot anzeigen
+            // Alle Nutzer und deren Status für diesen Slot anzeigen
             const slotsForHour = data.availability.filter(slot => slot.day === selectedDate && hour >= slot.startHour && hour < slot.endHour);
 
-            // Long-press logic needs to be inside the map to have a unique timer per slot
-            const handleLongPressStart = () => {
-              longPressTimers.current[hour] = setTimeout(() => {
-                setNotesModal({ isOpen: true, slotId: `${selectedDate}-${hour}`, hour });
-              }, 500);
-            };
-            const handleLongPressEnd = () => {
-              if (longPressTimers.current[hour]) {
-                clearTimeout(longPressTimers.current[hour]);
-                delete longPressTimers.current[hour];
-              }
-            };
+            // NEW: Check if this hour has an appointment and collect them
+            const slotStart = hour * 60;
+            const slotEnd = (hour + 1) * 60;
+            const hourAppointments = data.appointments.filter(app => {
+              if (app.date !== selectedDate) return false;
+              const [sh, sm] = app.startTime.split(':').map(Number);
+              const [eh, em] = app.endTime.split(':').map(Number);
+              const apptStart = (sh || 0) * 60 + (isNaN(sm) ? 0 : sm);
+              const apptEnd = (eh || 0) * 60 + (isNaN(em) ? 0 : em);
+              return apptStart < slotEnd && apptEnd > slotStart;
+            });
+            const hasAppt = hourAppointments.length > 0;
 
             return (
               <div
                 key={hour}
                 data-hour={hour}
                 data-day={selectedDate}
-                className={`flex flex-col justify-center px-2 cursor-pointer touch-manipulation border-l-4 transition-all duration-150 ${isPastHour ? 'bg-gray-50 cursor-not-allowed border-l-gray-300' : finalClass} ${slotsForHour.length > 4 ? 'h-16' : 'h-8'}`}
+                className={`flex flex-col justify-center px-2 cursor-pointer touch-manipulation border-l-4 transition-all duration-150 ${
+                  isPastHour ? 'bg-gray-50 cursor-not-allowed border-l-gray-300' : getSlotStatusClass(slotStatus)
+                } ${slotsForHour.length > 4 ? 'h-16' : 'h-10'} ${hasAppt ? 'border-l-amber-500' : ''}`}
                 onClick={() => !isPastHour && handleSlotClick(hour, selectedDate)}
-                onMouseDown={handleLongPressStart}
-                onMouseUp={handleLongPressEnd}
-                onMouseLeave={handleLongPressEnd}
-                onTouchStart={handleLongPressStart}
-                onTouchEnd={handleLongPressEnd}
+                title={hasAppt ? 'Termin in diesem Zeitraum' : undefined}
               >
                 <div className="flex items-center w-full justify-between">
                   <div className="flex items-center min-w-0">
@@ -281,7 +292,7 @@ const AvailabilityCalendar: React.FC = () => {
                     <div className="flex flex-wrap gap-1 items-center ml-2 text-xs min-w-0">
                       {slotsForHour.map((slot, idx) => {
                         const name = slot.userId === data.currentUserId ? 'Du' : slot.userId;
-                        let color = '';
+                        let color: string;
                         switch (slot.status) {
                           case 'present':
                             color = 'bg-green-100 text-green-700 border-green-300';
@@ -308,17 +319,61 @@ const AvailabilityCalendar: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {getSlotIcon(slotStatus)}
-                    {/* Kommentar-Symbol anzeigen, wenn Notizen vorhanden */}
-                    {slotNotes.length > 0 && (
-                      <span title="Kommentare vorhanden" className="text-blue-600">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="inline w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.8l-4 1 1-4A8.96 8.96 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                      </span>
-                    )}
                   </div>
                 </div>
+                {hasAppt && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {hourAppointments.map(app => (
+                      <span key={app.id} className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-medium truncate">
+                        {app.title}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
+        </div>
+
+        {/* New: Day-level comments section inside calendar div */}
+        <div className="border-t border-gray-200 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-800">Kommentare für {new Date(selectedDate).toLocaleDateString()}</h3>
+          </div>
+          {dayNotes.length > 0 ? (
+            <ul className="space-y-2 mb-3 max-h-40 overflow-auto pr-1">
+              {dayNotes
+                .sort((a, b) => a.timestamp - b.timestamp)
+                .map(n => (
+                  <li key={n.id} className="text-sm text-gray-700 bg-gray-50 rounded p-2 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{n.userId === data.currentUserId ? 'Du' : n.userId}</span>
+                      <span className="text-xs text-gray-500">{new Date(n.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap break-words">{n.text}</div>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500 mb-3">Noch keine Kommentare für diesen Tag.</p>
+          )}
+          <div className="flex items-start gap-2">
+            <textarea
+              value={dayComment}
+              onChange={(e) => setDayComment(e.target.value)}
+              className="flex-1 p-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+              placeholder="Kommentar für diesen Tag hinzufügen..."
+              rows={2}
+            />
+            <button
+              onClick={handleAddDayNote}
+              className="px-3 py-2 rounded bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 disabled:opacity-50"
+              disabled={!dayComment.trim() || !data.currentUserId}
+              title={!data.currentUserId ? 'Bitte zuerst anmelden' : 'Kommentar hinzufügen'}
+            >
+              Hinzufügen
+            </button>
+          </div>
         </div>
       </div>
 
@@ -339,7 +394,7 @@ const AvailabilityCalendar: React.FC = () => {
             <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
             Keine Zeit
           </span> → Vielleicht dabei<br/><br/>
-          <strong>Halte gedrückt</strong> um Kommentare zu hinterlassen.
+          <strong>Kommentare</strong> kannst du unten für jeden Tag hinzufügen.
         </p>
       </div>
       
@@ -378,15 +433,6 @@ const AvailabilityCalendar: React.FC = () => {
           </div>
         </div>
       )}
-      
-      {/* Notes Modal */}
-      <NotesModal
-        isOpen={notesModal?.isOpen || false}
-        onClose={() => setNotesModal(null)}
-        type="slot"
-        targetId={notesModal?.slotId || ''}
-        title={notesModal ? `${selectedDate} at ${notesModal.hour}:00` : ''}
-      />
     </div>
   );
 };
