@@ -27,6 +27,14 @@ const BACKUP_STRATEGY = (process.env.BACKUP_STRATEGY || 'both').toLowerCase(); /
 const USE_LOCAL = BACKUP_STRATEGY === 'local' || BACKUP_STRATEGY === 'both';
 const USE_DRIVE = BACKUP_STRATEGY === 'drive' || BACKUP_STRATEGY === 'both';
 
+// Safety and scheduling constants
+const BACKUP_INTERVAL_HOURS = 6; // keep in sync with cron schedule below
+const BACKUP_INTERVAL_MS = BACKUP_INTERVAL_HOURS * 60 * 60 * 1000;
+const STARTUP_CATCHUP_GRACE_MS = (parseInt(process.env.BACKUP_CATCHUP_GRACE_MINUTES || '15', 10)) * 60 * 1000; // skip immediate backup if last success was within this window
+const LOCK_STALE_MS = (parseInt(process.env.BACKUP_LOCK_STALE_MINUTES || '60', 10)) * 60 * 1000; // consider lock stale after this time
+const STATE_FILE = path.join(BACKUP_DIR, 'backup-state.json');
+const LOCK_FILE = path.join(BACKUP_DIR, 'backup.lock');
+
 const log = makeLogger('Backup');
 
 log.info('Config:', {
@@ -80,6 +88,68 @@ async function ensureBackupDir() {
   await fsp.mkdir(BACKUP_DIR, { recursive: true });
 }
 
+// Persistent state helpers
+async function readState() {
+  try {
+    const raw = await fsp.readFile(STATE_FILE, 'utf-8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return { lastSuccess: null, lastAttempt: null, lastError: null, lastFile: null };
+  }
+}
+
+async function writeState(partial) {
+  const current = await readState();
+  const next = { ...current, ...partial };
+  const tmp = STATE_FILE + '.tmp';
+  await fsp.writeFile(tmp, JSON.stringify(next, null, 2));
+  await fsp.rename(tmp, STATE_FILE);
+}
+
+// File-based lock to avoid concurrent backups and handle stale locks
+async function acquireLock() {
+  const now = Date.now();
+  // Try to create lock atomically
+  try {
+    await fsp.writeFile(LOCK_FILE, JSON.stringify({ pid: process.pid, since: new Date().toISOString() }, null, 2), { flag: 'wx' });
+    return true;
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      // Check staleness
+      try {
+        const stat = await fsp.stat(LOCK_FILE);
+        const age = now - stat.mtimeMs;
+        if (age > LOCK_STALE_MS) {
+          log.warn(`Stale backup lock detected (age ${Math.round(age / 1000)}s) - forcing unlock`);
+          await fsp.unlink(LOCK_FILE).catch(() => {});
+          // Retry once
+          await fsp.writeFile(LOCK_FILE, JSON.stringify({ pid: process.pid, since: new Date().toISOString(), note: 'recovered stale lock' }, null, 2), { flag: 'wx' });
+          return true;
+        }
+      } catch (_) {
+        // If we can't stat, try to recover
+        try {
+          await fsp.unlink(LOCK_FILE);
+        } catch (_) {}
+        try {
+          await fsp.writeFile(LOCK_FILE, JSON.stringify({ pid: process.pid, since: new Date().toISOString(), note: 'recovered lock (stat failed)' }, null, 2), { flag: 'wx' });
+          return true;
+        } catch (_) {}
+      }
+      return false; // lock is active and not stale
+    }
+    throw e; // unexpected error
+  }
+}
+
+async function releaseLock() {
+  try {
+    await fsp.unlink(LOCK_FILE);
+  } catch (_) {
+    // ignore
+  }
+}
+
 // Build payload for backup without side-effects (allows flexible destinations)
 async function buildBackupPayload() {
   if (BACKUP_DRY_RUN) {
@@ -124,9 +194,12 @@ async function writeLocalBackup(payload) {
   const ts = timestampSafe();
   const filename = `backup-${ts}.json`;
   const filePath = path.join(BACKUP_DIR, filename);
+  const tmpPath = filePath + '.tmp';
   const payloadStr = JSON.stringify(payload, null, 2);
   const bytes = Buffer.byteLength(payloadStr);
-  await fsp.writeFile(filePath, payloadStr, 'utf-8');
+  // Atomic write: write to tmp then rename
+  await fsp.writeFile(tmpPath, payloadStr, 'utf-8');
+  await fsp.rename(tmpPath, filePath);
   log.info(`Wrote backup file: ${filePath} (${bytes} bytes)`);
   return { filePath, filename, bytes };
 }
@@ -162,6 +235,16 @@ async function performBackup() {
     if (USE_LOCAL || USE_DRIVE) {
       await ensureBackupDir();
     }
+
+    // Acquire lock to prevent overlapping runs
+    const locked = await acquireLock();
+    if (!locked) {
+      log.warn('Another backup is in progress (lock present). Skipping this run.');
+      return false;
+    }
+
+    await writeState({ lastAttempt: new Date().toISOString(), lastError: null });
+
     const payload = await buildBackupPayload();
 
     let localResult = null;
@@ -195,16 +278,73 @@ async function performBackup() {
 
     const ms = Date.now() - started;
     log.info(`Backup finished successfully in ${ms}ms`);
+
+    await writeState({
+      lastSuccess: new Date().toISOString(),
+      lastFile: localResult ? localResult.filename : null,
+      lastError: null
+    });
+
     return true;
   } catch (err) {
     const ms = Date.now() - started;
     log.error('Backup failed after', ms, 'ms');
     log.error('Error:', err && (err.stack || err.message || err));
+    try {
+      await writeState({ lastError: err && (err.message || String(err)) });
+    } catch (_) {}
     return false;
+  } finally {
+    await releaseLock();
   }
 }
 
 let scheduled = null;
+async function maybeCatchupAtStartup() {
+  try {
+    await ensureBackupDir();
+    // Clean up stale lock if present
+    const now = Date.now();
+    try {
+      const stat = await fsp.stat(LOCK_FILE);
+      const age = now - stat.mtimeMs;
+      if (age > LOCK_STALE_MS) {
+        log.warn('Removing stale backup lock at startup');
+        await fsp.unlink(LOCK_FILE).catch(() => {});
+      }
+    } catch (_) {
+      // no lock
+    }
+
+    const state = await readState();
+    const lastSuccessTs = state.lastSuccess ? Date.parse(state.lastSuccess) : null;
+
+    if (!lastSuccessTs) {
+      log.info('No previous successful backup recorded - running initial backup now');
+      await performBackup();
+      return;
+    }
+
+    const sinceMs = Date.now() - lastSuccessTs;
+    const missed = Math.floor((sinceMs - STARTUP_CATCHUP_GRACE_MS) / BACKUP_INTERVAL_MS);
+
+    if (sinceMs >= Math.max(STARTUP_CATCHUP_GRACE_MS, BACKUP_INTERVAL_MS)) {
+      log.warn(`Detected missed backup window(s): ~${Math.max(0, missed)} interval(s) since last success. Running catch-up now.`);
+      await performBackup();
+    } else if (sinceMs >= STARTUP_CATCHUP_GRACE_MS) {
+      // Last success is a bit old but within first interval; run once to be safe
+      log.info('Running startup backup due to grace window threshold');
+      await performBackup();
+    } else {
+      log.info('Recent backup exists - skipping immediate startup run');
+    }
+  } catch (e) {
+    log.warn('Startup catch-up check failed:', e.message);
+    // Fallback to running once to ensure coverage
+    await performBackup();
+  }
+}
+
 function startSchedule() {
   if (scheduled) return scheduled;
   log.info('Starting cron schedule: 0 */6 * * * (every 6 hours at minute 0)');
@@ -213,8 +353,8 @@ function startSchedule() {
     log.info('Cron trigger fired');
     performBackup();
   });
-  // Run once on startup (non-blocking)
-  performBackup();
+  // Run once on startup with catch-up logic
+  maybeCatchupAtStartup();
   log.info('Schedule started: every 6 hours');
   return scheduled;
 }
